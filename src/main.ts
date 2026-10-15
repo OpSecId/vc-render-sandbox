@@ -2,7 +2,18 @@ import { marked } from "marked";
 import hostMediatedLinksDoc from "../docs/html-host-mediated-links.md?raw";
 import { mountHtmlRenderMethod } from "./html/host";
 import type { FollowLinkRequest } from "./html/messages";
-import { collectAssertedUrls } from "./links";
+import {
+  approveOrigin,
+  assertVerifiableCredentialShape,
+  isOriginPreapproved,
+  isSameOriginHref,
+  loadStrictMode,
+  originOfHref,
+  policyFromStrict,
+  saveStrictMode,
+} from "./host-policy";
+import { resolveDemoFetchUrl, withAppBase } from "./demo-urls";
+import { collectFollowableUrls } from "./links";
 import "./style.css";
 import type { RenderMethod, VerifiableCredential } from "./types";
 import {
@@ -15,11 +26,6 @@ import {
 
 const app = document.getElementById("app")!;
 
-/** Hosted credential/template origin (GitHub Pages). */
-const PUBLIC_HOST = "https://opsecid.github.io";
-const PUBLIC_APP = `${PUBLIC_HOST}/vc-render-sandbox`;
-const UNTP_ENTRY = `${PUBLIC_APP}/credentials/untp/dpp-cathode.json`;
-
 type AppView = "demo" | "doc";
 type StackEntry = {
   vc: VerifiableCredential;
@@ -31,16 +37,14 @@ let view: AppView = "demo";
 let stack: StackEntry[] = [];
 let disposeMount: (() => void) | null = null;
 let eventLog: string[] = [];
+let strictMode = loadStrictMode();
 
 function current(): StackEntry | null {
   return stack[stack.length - 1] ?? null;
 }
 
 function withBase(path: string): string {
-  const base = import.meta.env.BASE_URL || "/";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  const cleaned = path.replace(/^\//, "");
-  return base.endsWith("/") ? base + cleaned : `${base}/${cleaned}`;
+  return withAppBase(path);
 }
 
 function mountShell() {
@@ -49,6 +53,10 @@ function mountShell() {
       <div class="header-row">
         <h1>VC Render Sandbox</h1>
         <div class="header-tools">
+          <label class="strict-toggle" title="Require template digests; always consent on cross-origin follow">
+            <input type="checkbox" id="strict-mode" ${strictMode ? "checked" : ""} />
+            <span>Strict</span>
+          </label>
           <nav class="view-tabs" aria-label="App views">
             <a href="#demo" id="tab-demo" class="tab active" aria-current="page">Demo</a>
             <a href="#doc" id="tab-doc" class="tab">Doc</a>
@@ -78,15 +86,36 @@ function mountShell() {
       </div>
       <p id="header-blurb">
         W3C <a href="https://www.w3.org/TR/vc-render-method/" target="_blank" rel="noreferrer">VC Render Method</a>
-        <code>html</code> host with host-mediated link traversal.
+        <code>html</code> suite host + experimental host-mediated links profile.
       </p>
     </header>
+
+    <dialog id="consent-dialog" class="consent-dialog">
+      <form method="dialog" id="consent-form">
+        <h2>Allow host to fetch this link?</h2>
+        <p class="consent-lead">
+          The template requested a cross-origin credential. The sandboxed iframe cannot fetch it;
+          the host will if you approve.
+        </p>
+        <dl class="consent-meta">
+          <dt>Label</dt><dd id="consent-label"></dd>
+          <dt>Origin</dt><dd id="consent-origin"></dd>
+          <dt>URL</dt><dd id="consent-href" class="consent-url"></dd>
+          <dt>linkType</dt><dd id="consent-linktype"></dd>
+        </dl>
+        <menu class="consent-actions">
+          <button type="submit" value="cancel" class="secondary">Deny</button>
+          <button type="submit" value="once" class="secondary">Allow once</button>
+          <button type="submit" value="always" class="primary">Allow origin</button>
+        </menu>
+      </form>
+    </dialog>
 
     <section id="demo-panel">
       <div id="loader" class="loader">
         <p class="loader-lead">
-          Open a credential, then follow issuer-asserted links from the rendered template.
-          The host fetches; the iframe never phones home.
+          HTML suite rendering stays sandboxed. Optional extension: follow only
+          <code>linkURL</code> values from the filtered credential — host fetches after consent.
         </p>
         <div class="actions">
           <button type="button" id="load-untp" class="primary">
@@ -117,9 +146,17 @@ function mountShell() {
 
   window.addEventListener("hashchange", () => setView(viewFromHash(), false));
 
+  document.getElementById("strict-mode")!.addEventListener("change", (e) => {
+    strictMode = (e.target as HTMLInputElement).checked;
+    saveStrictMode(strictMode);
+    pushLog(`Host strict mode ${strictMode ? "ON" : "OFF"}`);
+    if (current()) void refresh();
+  });
+
   document.getElementById("load-untp")!.addEventListener("click", () => {
-    // Load from the published Pages URL so relatedDocument links are real HTTPS URLs.
-    void loadUrl(UNTP_ENTRY, "Cathode DPP");
+    // Prefer local stamped credential (digests). relatedDocument.linkURL remain absolute
+    // Pages URLs so cross-origin consent can be exercised in local dev.
+    void loadUrl(withBase("/credentials/untp/dpp-cathode.json"), "Cathode DPP");
   });
   document.getElementById("load-passport")!.addEventListener("click", () => {
     void loadUrl(withBase("/credentials/product-passport.json"), "Product passport");
@@ -160,10 +197,10 @@ function mountShell() {
   window.addEventListener("vcrender:follow-rejected", ((e: CustomEvent<FollowLinkRequest>) => {
     const req = e.detail;
     pushLog(
-      `REJECTED followLink → ${req.href} (not asserted in credential; template cannot phone home)`,
+      `REJECTED followLink → ${req.href} (not a followable linkURL in filtered credential)`,
     );
     setStatus(
-      `Host rejected followLink — URL not in credential: ${req.href}`,
+      `Host rejected followLink — not a linkURL in the filtered credential: ${req.href}`,
       true,
     );
     renderMetaExtras();
@@ -211,8 +248,8 @@ function setView(next: AppView, updateHash = true) {
 
   blurb.innerHTML = showDemo
     ? `W3C <a href="https://www.w3.org/TR/vc-render-method/" target="_blank" rel="noreferrer">VC Render Method</a>
-        <code>html</code> host with host-mediated link traversal.`
-    : `Draft: host-mediated links for the HTML suite — templates request issuer-asserted URLs; the host fetches.`;
+        <code>html</code> suite host + experimental host-mediated links profile.`
+    : `Extension draft (not in the W3C TR): host-mediated links over MessageChannel — only <code>linkURL</code> slots; host fetches.`;
 }
 
 function setDemoLoaded(loaded: boolean) {
@@ -394,9 +431,8 @@ function currentMethod(): RenderMethod | null {
 }
 
 /**
- * Host policy for followLink fetches. Asserted-URI allowlisting happens first
- * in the html host; this only restricts URL schemes / local http.
- * Cross-origin https is allowed — the target must still send CORS headers.
+ * Scheme gate only. Followable linkURL allowlisting runs in the html host first.
+ * Cross-origin https is allowed after consent — target must still send CORS headers.
  */
 function isCredentialFetchAllowed(href: string): boolean {
   if (href.startsWith("/")) return true;
@@ -415,13 +451,40 @@ function isCredentialFetchAllowed(href: string): boolean {
   }
 }
 
-/** Resolve relative credential/template URLs against the app base. */
+/** Resolve fetch target; rewrite this app's Pages URLs to the local stamped tree. */
 function resolveFetchUrl(href: string): string {
-  if (href.startsWith("http://") || href.startsWith("https://")) return href;
-  if (href.startsWith("/credentials/") || href.startsWith("/templates/")) {
-    return withBase(href);
-  }
-  return href;
+  return resolveDemoFetchUrl(href);
+}
+
+type ConsentResult = "cancel" | "once" | "always";
+
+function requestCrossOriginConsent(request: FollowLinkRequest): Promise<ConsentResult> {
+  const dialog = document.getElementById("consent-dialog") as HTMLDialogElement;
+  const form = document.getElementById("consent-form") as HTMLFormElement;
+  document.getElementById("consent-label")!.textContent =
+    request.label || "(none)";
+  document.getElementById("consent-origin")!.textContent =
+    originOfHref(request.href) || "(invalid)";
+  document.getElementById("consent-href")!.textContent = request.href;
+  document.getElementById("consent-linktype")!.textContent =
+    request.linkType || "(none)";
+
+  return new Promise((resolve) => {
+    const onClose = () => {
+      form.removeEventListener("submit", onSubmit);
+      dialog.removeEventListener("close", onClose);
+      const v = dialog.returnValue as ConsentResult;
+      resolve(v === "once" || v === "always" ? v : "cancel");
+    };
+    const onSubmit = (e: Event) => {
+      const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
+      if (submitter?.value) dialog.returnValue = submitter.value;
+    };
+    form.addEventListener("submit", onSubmit);
+    dialog.addEventListener("close", onClose);
+    dialog.returnValue = "cancel";
+    dialog.showModal();
+  });
 }
 
 async function onFollowLink(request: FollowLinkRequest) {
@@ -439,11 +502,40 @@ async function onFollowLink(request: FollowLinkRequest) {
     return;
   }
 
+  // Consent uses the issuer-asserted URL (may be cross-origin Pages).
+  // Fetch may use a local mirror afterward for stamped digests.
+  const policy = policyFromStrict(strictMode);
+  const assertedOrigin = originOfHref(request.href);
+
+  if (policy.requireCrossOriginConsent && !isSameOriginHref(request.href)) {
+    if (!assertedOrigin) {
+      setStatus(`Host refused followLink — invalid URL: ${request.href}`, true);
+      return;
+    }
+    if (!isOriginPreapproved(assertedOrigin)) {
+      const decision = await requestCrossOriginConsent(request);
+      if (decision === "cancel") {
+        pushLog(`HOST followLink denied by user → ${request.href}`);
+        setStatus("Cross-origin follow denied.");
+        renderMetaExtras();
+        return;
+      }
+      if (decision === "always") {
+        approveOrigin(assertedOrigin);
+        pushLog(`HOST approved origin for session → ${assertedOrigin}`);
+      }
+    }
+  }
+
   const fetchUrl = resolveFetchUrl(request.href);
+  if (fetchUrl !== request.href) {
+    pushLog(`HOST using local mirror → ${fetchUrl}`);
+  }
+
   setStatus(`Host fetching ${fetchUrl}…`);
 
   try {
-    const response = await fetch(fetchUrl, { credentials: "omit" });
+    const response = await fetch(fetchUrl, { credentials: "omit", mode: "cors" });
     if (!response.ok) {
       throw new Error(`Fetch failed (${response.status}) for ${fetchUrl}`);
     }
@@ -460,6 +552,7 @@ async function onFollowLink(request: FollowLinkRequest) {
       );
     }
     const vc = unwrapVc(parsed);
+    assertVerifiableCredentialShape(vc);
     const label = request.label || request.linkType || request.href;
     clearMount();
     stack.push({
@@ -546,21 +639,25 @@ async function refresh() {
   }
 
   try {
+    const policy = policyFromStrict(strictMode);
     const result = await mountHtmlRenderMethod(sandbox, entry.vc, method, {
       title: method.name ?? "HTML render suite",
+      requireTemplateDigest: policy.requireTemplateDigest,
       onFollowLink,
     });
     disposeMount = result.dispose;
-    setStatus("");
+    setStatus(strictMode ? "Strict host · digest required · linkURL allowlist" : "");
     metaEl.textContent = JSON.stringify(
       {
+        profile: "html suite + host-mediated links extension",
+        strictMode,
         stack: stack.map((s) => s.label),
         credentialTypes: credentialTypes(entry.vc),
         renderSuite: "html",
         templateSource: result.templateSource,
-        assertedUrls: [...collectAssertedUrls(result.filteredCredential)],
+        followableLinkUrls: [...collectFollowableUrls(result.filteredCredential)],
         filteredCredential: result.filteredCredential,
-        note: "followLink hrefs must be in assertedUrls (filtered VC); host performs fetch.",
+        note: "followLink hrefs must be linkURL values in the filtered VC; host fetches after consent when cross-origin.",
       },
       null,
       2,

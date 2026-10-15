@@ -1,3 +1,4 @@
+import { resolveDemoFetchUrl } from "./demo-urls";
 import { verifyDigestMultibase } from "./digest";
 import type { TemplateReference } from "./types";
 
@@ -20,13 +21,19 @@ function decodeDataUrl(url: string): { mediaType: string; body: string } {
   return { mediaType, body };
 }
 
+export type ResolveTemplateOptions = {
+  digestMultibase?: string;
+  /** When true, non-data: templates MUST present digestMultibase and verify. */
+  requireDigest?: boolean;
+};
+
 /**
  * Resolve `renderMethod.template` — string (often a data: URL) or map with `id`.
  * When `digestMultibase` is present, content is verified before return.
  */
 export async function resolveTemplate(
   template: string | TemplateReference | undefined,
-  options: { digestMultibase?: string } = {},
+  options: ResolveTemplateOptions = {},
 ): Promise<ResolvedTemplate> {
   if (template == null) {
     throw new Error("renderMethod.template is required for the html render suite");
@@ -36,6 +43,11 @@ export async function resolveTemplate(
     if (template.startsWith("data:")) {
       const { mediaType, body } = decodeDataUrl(template);
       const digest = options.digestMultibase;
+      if (options.requireDigest && !digest) {
+        throw new Error(
+          "Strict host policy: embedded data: template requires digestMultibase on the render method",
+        );
+      }
       if (digest) await verifyDigestMultibase(body, digest);
       return {
         html: body,
@@ -44,7 +56,7 @@ export async function resolveTemplate(
         digestVerified: Boolean(digest),
       };
     }
-    return fetchTemplate(template, options.digestMultibase, undefined);
+    return fetchTemplate(template, options.digestMultibase, undefined, options.requireDigest);
   }
 
   if (!template.id) {
@@ -54,6 +66,11 @@ export async function resolveTemplate(
   if (template.id.startsWith("data:")) {
     const { mediaType, body } = decodeDataUrl(template.id);
     const digest = template.digestMultibase ?? options.digestMultibase;
+    if (options.requireDigest && !digest) {
+      throw new Error(
+        "Strict host policy: embedded data: template requires digestMultibase",
+      );
+    }
     if (digest) await verifyDigestMultibase(body, digest);
     return {
       html: body,
@@ -67,26 +84,23 @@ export async function resolveTemplate(
     template.id,
     template.digestMultibase ?? options.digestMultibase,
     template.mediaType,
+    options.requireDigest,
   );
-}
-
-function withBase(path: string): string {
-  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
-    return path;
-  }
-  const base = import.meta.env.BASE_URL || "/";
-  const cleaned = path.replace(/^\//, "");
-  return base.endsWith("/") ? base + cleaned : `${base}/${cleaned}`;
 }
 
 async function fetchTemplate(
   url: string,
   digestMultibase: string | undefined,
   mediaType: string | undefined,
+  requireDigest?: boolean,
 ): Promise<ResolvedTemplate> {
   // Host MUST preload remote templates (CSP frame-src 'none' forbids iframe src).
-  // Prefix app base so GitHub Pages project sites resolve /templates/... correctly.
-  const fetchUrl = withBase(url);
+  if (requireDigest && !digestMultibase) {
+    throw new Error(
+      `Strict host policy: remote template ${url} requires digestMultibase before injection`,
+    );
+  }
+  const fetchUrl = resolveDemoFetchUrl(url);
   let response: Response;
   try {
     response = await fetch(fetchUrl, { mode: "cors", credentials: "omit" });

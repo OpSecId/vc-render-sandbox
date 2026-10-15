@@ -1,33 +1,64 @@
 /**
- * Collect URI-like strings asserted in credential JSON so the host can allowlist
- * followLink targets. Templates cannot invent destinations the VC did not contain.
+ * Followable URLs for host-mediated links.
+ *
+ * Only `linkURL` property values are eligible (UNTP Link / evidence Link shape).
+ * Issuer ids, scheme ids, and other https strings in the filtered VC are NOT
+ * followable — that closes the "any URI-shaped string" confused-deputy hole.
  */
 
-const URI_LIKE =
-  /^(https?:\/\/|\/|did:|urn:|data:)/i;
+const FORBIDDEN_FOLLOW_SCHEME = /^(javascript|data|blob|file|vbscript):/i;
 
-export function collectAssertedUrls(doc: unknown): Set<string> {
-  const urls = new Set<string>();
-  walk(doc, (value) => {
-    if (typeof value === "string" && URI_LIKE.test(value)) {
-      urls.add(value);
-    }
+export function collectFollowableUrls(doc: unknown): Set<string> {
+  const urls = set();
+  walkLinkUrls(doc, (url) => {
+    if (isFollowableHref(url)) urls.add(url);
   });
   return urls;
 }
 
-export function isAssertedLink(doc: unknown, href: string): boolean {
-  return collectAssertedUrls(doc).has(href);
+/** @deprecated alias — prefer collectFollowableUrls */
+export function collectAssertedUrls(doc: unknown): Set<string> {
+  return collectFollowableUrls(doc);
 }
 
-function walk(node: unknown, visit: (value: unknown) => void): void {
-  visit(node);
-  if (!node || typeof node !== "object") return;
+export function isFollowableLink(doc: unknown, href: string): boolean {
+  if (!isFollowableHref(href)) return false;
+  return collectFollowableUrls(doc).has(href);
+}
+
+/** @deprecated alias — prefer isFollowableLink */
+export function isAssertedLink(doc: unknown, href: string): boolean {
+  return isFollowableLink(doc, href);
+}
+
+export function isFollowableHref(href: string): boolean {
+  if (typeof href !== "string" || !href) return false;
+  if (FORBIDDEN_FOLLOW_SCHEME.test(href)) return false;
+  if (href.startsWith("/")) return true;
+  try {
+    const url = new URL(href);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function set(): Set<string> {
+  return new Set<string>();
+}
+
+function walkLinkUrls(node: unknown, visit: (url: string) => void): void {
+  if (node == null) return;
   if (Array.isArray(node)) {
-    for (const item of node) walk(item, visit);
+    for (const item of node) walkLinkUrls(item, visit);
     return;
   }
-  for (const value of Object.values(node as Record<string, unknown>)) {
-    walk(value, visit);
+  if (typeof node !== "object") return;
+
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "linkURL" && typeof value === "string") {
+      visit(value);
+    }
+    walkLinkUrls(value, visit);
   }
 }

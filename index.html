@@ -4,18 +4,40 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      Host CSP:
+      Host CSP is installed synchronously by the bootstrap below (per-load nonce).
       - frame-src 'none' forces srcdoc (W3C html suite).
-      - script-src needs 'unsafe-inline' (or a nonce/hash) because browsers also
-        enforce the *parent* CSP on about:srcdoc documents. Without it, wrapper
-        + template inline scripts are blocked and renderMethodReady never runs.
-      - Wrapper still adds its own CSP: default-src data: 'unsafe-inline'
-        (no network from the template).
+      - script-src uses the page nonce so about:srcdoc scripts can run only when
+        the host stamps that nonce onto wrapper + template <script> tags.
+      - Wrapper adds its own CSP: default-src data:; script-src 'nonce-…'
     -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; frame-src 'none'; base-uri 'self'; form-action 'self'"
-    />
+    <script>
+      (function () {
+        var bytes = new Uint8Array(16);
+        crypto.getRandomValues(bytes);
+        var bin = "";
+        for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        var nonce = btoa(bin)
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/g, "");
+        window.__VCR_CSP_NONCE__ = nonce;
+        document.write(
+          '<meta http-equiv="Content-Security-Policy" content="' +
+            "default-src 'self'; " +
+            "script-src 'self' 'nonce-" +
+            nonce +
+            "'; " +
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "font-src https://fonts.gstatic.com; " +
+            "img-src 'self' https: data:; " +
+            "connect-src 'self' https: http://localhost:* http://127.0.0.1:*; " +
+            "frame-src 'none'; " +
+            "base-uri 'self'; " +
+            "form-action 'self'" +
+            '">'
+        );
+      })();
+    </script>
     <title>VC Render Sandbox</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/favicon.png" />

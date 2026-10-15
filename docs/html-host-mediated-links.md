@@ -13,9 +13,9 @@ The W3C `html` render suite confines issuer-supplied template code in a sandboxe
 
 Trade and supply-chain credentials have an additional requirement: a consumer must be able to **follow issuer-asserted links** from a rendered passport (or facility record, traceability event, etc.) to a related verifiable credential and inspect that evidence.
 
-This document defines a small extension to the HTML suite host ↔ template channel: **host-mediated links**. The template may *propose* opening a URI that already appears in the credential data provided to it; the **host page** validates the request and performs any retrieval or navigation outside the sandbox.
+This document defines a small **extension profile** (not part of the W3C TR) on top of a conformant HTML suite host: **host-mediated links**. The template may *propose* opening a URI that appears as a `linkURL` property in the filtered credential; the **host page** validates the request, obtains user consent when the target is cross-origin, and performs any retrieval outside the sandbox.
 
-The template never gains network access or top-level navigation capability.
+The template never gains network access or top-level navigation capability. Wallets that implement only the TR need not implement `renderMethodFollow`; templates SHOULD degrade gracefully when it is absent.
 
 ---
 
@@ -62,8 +62,9 @@ This extension does **not** change:
 |-------------|----------------|
 | iframe `sandbox` | `allow-scripts` only (no `allow-top-navigation*`, no `allow-same-origin`) |
 | Host CSP | `frame-src 'none'` (templates via `srcdoc` after preload / digest check) |
-| Wrapper CSP | `default-src data: 'unsafe-inline'` (no network from template) |
+| Wrapper CSP | no network (`default-src data:`); scripts only with host nonce |
 | Ready / error | Template signals completion via `renderMethodReady` over a `MessageChannel` |
+| Template integrity | Strict mode requires `digestMultibase` and verifies before `srcdoc` inject |
 
 It **adds** an optional request channel from template → host for link traversal (same `MessageChannel` port after `ready`).
 
@@ -85,7 +86,7 @@ where `request` is a map:
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `href` | string | Yes | URI to open; MUST be an asserted URI |
+| `href` | string | Yes | URI to open; MUST equal a `linkURL` value in the filtered credential |
 | `linkType` | string | No | Hint (e.g. UNTP `linkType`, `conformityEvidence`) |
 | `label` | string | No | Human-readable label for host UX |
 
@@ -133,24 +134,24 @@ window.renderMethodReady(new Error("…"))
 
 Inputs: active filtered credential `filtered`, request `req`.
 
-1. If `req.href` is not an asserted URI in `filtered`, **reject** the request. Emit a host-visible error or log; do not fetch.
-2. If the request is not associated with a user gesture that the host accepts for navigation, **reject** or queue for confirmation (host policy).
+1. If `req.href` is not a followable `linkURL` in `filtered`, **reject** the request. Emit a host-visible error or log; do not fetch.
+2. If the target origin differs from the host origin, **obtain user consent** (or use a prior session approval for that origin) before fetching.
 3. Classify the target (host policy), for example:
-   - **credential follow** — media type / path indicates a VC JSON document; host retrieves and may render it
-   - **non-credential** — HTML page, PDF, etc.; host MAY show metadata only, open with an explicit external-open UX, or refuse
+   - **credential follow** — JSON document with `type` including `VerifiableCredential`; host retrieves and may render it
+   - **non-credential** — HTML page, PDF, etc.; this sandbox **refuses** (does not open as a credential)
 4. For credential follow:
-   1. Retrieve the document under host control (not inside the template iframe). Any origin is allowed at the protocol level; this sandbox fetches asserted `https:` URLs (and `http://localhost` for local dev). The browser still enforces CORS on the target.
-   2. Verify it as required by the host (signature, status, type).
-   3. Present it (new renderMethod pass, stack navigation, split pane, etc.).
-5. Hosts SHOULD apply privacy-preserving retrieval for remote resources (e.g. disassociating relays / Oblivious HTTP as already suggested for template fetches in the base specification).
+   1. Retrieve the document under host control (not inside the template iframe). Schemes: `https:` (any origin) or `http://localhost` / `127.0.0.1`. CORS still applies.
+   2. Require VC shape (`type` includes `VerifiableCredential`). Further proof/status checks are host policy.
+   3. Present it (new renderMethod pass, stack navigation, etc.).
+5. Hosts SHOULD apply privacy-preserving retrieval for remote resources (e.g. Oblivious HTTP).
 
-### 6.3 Asserted URI check
+### 6.3 Followable `linkURL` check
 
-An implementation MUST treat `href` as asserted only if it equals a string value found by walking the filtered credential JSON (or an explicitly declared allowlist derived from that walk before injection).
+An implementation MUST treat `href` as followable only if it equals a string value of a property named **`linkURL`** in the filtered credential JSON (UNTP `Link` / evidence Link). Other URI-shaped strings (`issuer.id`, scheme ids, etc.) MUST NOT be followable.
 
 Hosts MUST NOT accept URLs that appear only in template code or only in unfiltered credential fields withheld by `renderProperty`.
 
-> This sandbox walks string values matching a URI-like pattern (`http(s):`, `/`, `did:`, `urn:`, `data:`).
+> This sandbox also rejects `javascript:`, `data:`, `blob:`, and `file:` schemes for follow.
 
 ---
 
@@ -162,14 +163,14 @@ Hosts MUST NOT accept URLs that appear only in template code or only in unfilter
 |---------------------------------------------|-------------------------------|
 | Template phones home / tracks the holder | Template still has no network (wrapper CSP) |
 | Template navigates the wallet away | No `allow-top-navigation*`; only host may navigate/fetch |
-| Template invents tracking URLs | Asserted-URI allowlist rejects non-credential URLs |
+| Template invents tracking URLs | Only `linkURL` property values in the filtered VC are followable |
 
 ### 7.2 Residual risks (host responsibilities)
 
 - **Host fetch as tracker:** a malicious or compromised host could still request asserted URLs (including cross-origin). Users trust the host/wallet; this extension does not change that trust boundary.
 - **CORS / availability:** cross-origin credential stores must allow the host origin (or use a host-side proxy). A failed CORS preflight is a deployment concern, not a template escape.
-- **Asserted phishing URLs:** an issuer can place a malicious URL in the credential. The allowlist only proves the issuer asserted it; hosts SHOULD show clear UX (label, domain, type) before leaving the current credential.
-- **Confused deputy:** hosts MUST NOT treat `followLink` as proof that the target is a VC; validate media type / document shape before rendering as a credential.
+- **Issuer phishing URLs:** an issuer can place a malicious `linkURL` in the credential. The allowlist only proves it was disclosed as a Link; hosts SHOULD show clear UX (label, domain, type) and obtain consent before cross-origin fetch.
+- **Confused deputy:** hosts MUST NOT treat `followLink` as proof that the target is a VC; this sandbox requires JSON with `type` including `VerifiableCredential` before stacking a render.
 - **Over-broad `renderProperty`:** exposing more URIs than needed expands what templates may request; issuers SHOULD minimize `renderProperty` (or equivalent) to the claims required for the template.
 
 ### 7.3 What this extension explicitly rejects
@@ -215,7 +216,8 @@ Published UNTP samples may omit `renderMethod` today. Deployments can attach a `
     ],
     "template": {
       "id": "https://opsecid.github.io/vc-render-sandbox/templates/UntpDigitalProductPassport.html",
-      "mediaType": "text/html"
+      "mediaType": "text/html",
+      "digestMultibase": "uEiB…SHA-256-multihash…"
     }
   },
   "credentialSubject": {
@@ -247,11 +249,13 @@ button.onclick = () => {
 ### 9.3 Host (excerpt)
 
 ```js
-if (!isAssertedLink(filteredCredential, request.href)) {
-  // reject — template attempted a non-asserted URL
+if (!isFollowableLink(filteredCredential, request.href)) {
+  // reject — not a linkURL in the filtered credential
   return;
 }
-const next = await fetchCredentialJson(request.href); // host-controlled
+if (crossOrigin(request.href)) await confirmWithUser(request);
+const next = await fetchCredentialJson(resolveFetchUrl(request.href)); // host-controlled
+assertVerifiableCredentialShape(next);
 openCredential(next);
 ```
 
@@ -260,14 +264,15 @@ openCredential(next);
 ## 10. Conformance classes
 
 **Conforming template (host-mediated links)**  
-A template that uses `renderMethodFollow` only with asserted URIs and never performs its own network or top-level navigation to follow links.
+A template that uses `renderMethodFollow` only with `linkURL` values from the credential data block and never performs its own network or top-level navigation to follow links. Templates SHOULD degrade if `renderMethodFollow` is undefined.
 
 **Conforming host (host-mediated links)**  
 A host that:
 
 1. Implements the HTML suite confinement requirements, and  
-2. Accepts `followLink` only for asserted URIs in the filtered credential, and  
-3. Performs retrieval / navigation only in host context under user control.
+2. Accepts `followLink` only for `linkURL` values in the filtered credential, and  
+3. Performs retrieval only in host context under user control (consent when cross-origin), and  
+4. Does not render a follow target as a credential unless it has VC shape.
 
 ---
 
@@ -287,18 +292,57 @@ Until such text exists, implementers may treat this document as an optional prof
 
 | Piece | Location in this repo |
 |-------|------------------------|
-| Wrapper bridge | `src/html/wrapper.ts` |
-| Host handler + allowlist | `src/html/host.ts`, `src/links.ts` |
+| Wrapper bridge + nonce CSP | `src/html/wrapper.ts` |
+| Host handler | `src/html/host.ts` |
+| Followable `linkURL` allowlist | `src/links.ts` |
+| Strict / consent policy | `src/host-policy.ts` |
+| Pages → local fetch rewrite | `src/demo-urls.ts` |
 | Message shapes | `src/html/messages.ts` |
-| Demo UI stack | `src/main.ts` |
-| UNTP cathode DPP → DCC | `credentials/untp-dpp-cathode.json` → `credentials/untp-dcc-cathode-scheme.json` |
+| Demo UI | `src/main.ts` |
+| Stamp digests | `npm run digests` → `scripts/stamp-template-digests.mjs` |
+| UNTP graph | `credentials/untp/dpp-cathode.json` → related `credentials/untp/*.json` |
 
 ---
 
-## 13. References
+## 13. Revisions
+
+### R1 — Initial extension draft
+
+- Defined `renderMethodFollow` / host-mediated links over the HTML suite channel.
+- Demo UNTP graph with absolute Pages `linkURL` values.
+- Early transport used `parent.postMessage` + handshake id (later replaced).
+
+### R2 — HTML suite algorithm alignment
+
+- MessageChannel for `ready` / `error` / `followLink` (TR host/wrapper algorithm).
+- `selectJsonLd`-style filtering; missing pointers fail closed.
+- Entire VC when `renderProperty` is absent.
+- Reject template fragments containing `<html>` / `<head>` / `<body>`.
+
+### R3 — Host hardening (current)
+
+Addressed threat-model and “soft allowlist” gaps from review:
+
+| Hardening | Behavior |
+|-----------|----------|
+| **`linkURL`-only allowlist** | Follow targets must equal a `linkURL` property in the filtered VC — not every URI-shaped string (`issuer.id`, subject ids, etc.). |
+| **Strict mode** (default on) | Remote/embedded templates **require** `digestMultibase`; host verifies SHA-256 multihash (`u` prefix) before `srcdoc` inject. Toggle off only for demo of unsigned templates. |
+| **Cross-origin consent** | Before fetching an asserted URL on another origin, the host shows label / origin / URL / `linkType` and requires Deny / Allow once / Allow origin (session). Consent keys off the **asserted** URL, not any local mirror. |
+| **CSP nonce** | Per-page nonce installed before app load; wrapper + template `<script>` tags stamped with the same nonce. Parent `script-src` is `'self' 'nonce-…'` (no script `'unsafe-inline'`). Wrapper CSP blocks network (`default-src data:`). |
+| **Template hygiene** | Reject remote `<script src>` in fragments. |
+| **VC shape on follow** | Followed JSON must include `type` `VerifiableCredential` before stack/render. |
+| **Local mirror for digests** | Asserted Pages URLs for this app may be fetched from the local stamped tree after consent so Strict digests work before Pages redeploy; debug log notes the mirror. |
+| **Profile framing** | Documented as HTML suite host **plus** optional extension — not a claim that `renderMethodFollow` is in the W3C TR. |
+
+Cross-origin consent and the `linkURL` allowlist remain on even when Strict is off. Strict only gates **template digest** requirement.
+
+---
+
+## 14. References
 
 - [Verifiable Credential Rendering Methods v1.0](https://www.w3.org/TR/vc-render-method/) (W3C Working Draft)
 - [HTML `iframe` `sandbox`](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox)
 - [Content Security Policy Level 3](https://www.w3.org/TR/CSP3/)
-- [UNTP Digital Product Passport](https://untp.unece.org/docs/specification/product-passport)
-- [UNTP Digital Conformity Credential](https://untp.unece.org/docs/specification/conformity-credential)
+- [Channel Messaging API (`MessageChannel`)](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel)
+- [UNTP Digital Product Passport](https://untp.unece.org/docs/specification/DigitalProductPassport)
+- [UNTP Digital Conformity Credential](https://untp.unece.org/docs/specification/DigitalConformityCredential)

@@ -44,7 +44,11 @@ function serveStaticDirs(dirs: string[]): Plugin {
     name: "serve-static-dirs",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        let url = req.url?.split("?")[0] ?? "";
+        const rawUrl = req.url ?? "";
+        // Let Vite handle transformed imports (?raw, ?import, HMR, etc.).
+        if (rawUrl.includes("?")) return next();
+
+        let url = rawUrl.split("?")[0] ?? "";
         // When VITE_BASE is set (e.g. /repo/), strip it for local asset lookup.
         const normalizedBase = base === "/" ? "/" : base.replace(/\/?$/, "/");
         if (normalizedBase !== "/" && url.startsWith(normalizedBase)) {

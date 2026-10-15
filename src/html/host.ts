@@ -1,4 +1,5 @@
-import { isAssertedLink } from "../links";
+import { getCspNonce } from "../csp-nonce";
+import { isFollowableLink } from "../links";
 import { filterCredential } from "../select-jsonld";
 import { resolveTemplate } from "../template";
 import type {
@@ -18,15 +19,19 @@ import { buildWrapperSrcdoc } from "./wrapper";
 const SANDBOX = "allow-scripts";
 
 /** Templates MUST be fragments — no html/head/body (provided by wrapper). */
-const FORBIDDEN_TEMPLATE_TAG =
-  /<\s*\/?\s*(?:html|head|body)\b/i;
+const FORBIDDEN_TEMPLATE_TAG = /<\s*\/?\s*(?:html|head|body)\b/i;
+
+/** Block remote script/src in fragments (wrapper CSP also blocks network). */
+const REMOTE_SCRIPT_SRC = /<script\b[^>]*\bsrc\s*=/i;
 
 export type HostMountOptions = {
   style?: OutputPreference["style"];
   title?: string;
+  /** Require digestMultibase for non-data: templates (strict host policy). */
+  requireTemplateDigest?: boolean;
   /**
    * Called when the template asks the host to follow a credential-borne link.
-   * Host MUST validate the href against the filtered credential before fetching.
+   * Host MUST validate the href against followable linkURL slots before fetching.
    */
   onFollowLink?: (request: FollowLinkRequest) => void | Promise<void>;
   /** Document used for allowlisting (defaults to filtered credential). */
@@ -57,15 +62,13 @@ export async function mountHtmlRenderMethod(
   const allowlistDoc = options.linkAllowlistDocument ?? filteredCredential;
   const resolved = await resolveTemplate(renderMethod.template, {
     digestMultibase: renderMethod.digestMultibase,
+    requireDigest: options.requireTemplateDigest === true,
   });
 
-  if (FORBIDDEN_TEMPLATE_TAG.test(resolved.html)) {
-    throw new Error(
-      "HTML template MUST be a fragment and MUST NOT include <html>, <head>, or <body> tags",
-    );
-  }
+  validateTemplateFragment(resolved.html);
 
-  const srcdoc = buildWrapperSrcdoc(filteredCredential, resolved.html);
+  const nonce = getCspNonce();
+  const srcdoc = buildWrapperSrcdoc(filteredCredential, resolved.html, nonce);
 
   host.innerHTML = "";
   host.classList.add("sandbox-host");
@@ -86,7 +89,6 @@ export async function mountHtmlRenderMethod(
     onFollowLink: options.onFollowLink,
   });
 
-  // Attach listeners before assigning srcdoc so onload is not missed.
   host.appendChild(iframe);
   iframe.srcdoc = srcdoc;
 
@@ -108,6 +110,19 @@ export async function mountHtmlRenderMethod(
   };
 }
 
+export function validateTemplateFragment(html: string): void {
+  if (FORBIDDEN_TEMPLATE_TAG.test(html)) {
+    throw new Error(
+      "HTML template MUST be a fragment and MUST NOT include <html>, <head>, or <body> tags",
+    );
+  }
+  if (REMOTE_SCRIPT_SRC.test(html)) {
+    throw new Error(
+      "HTML template MUST NOT include remote <script src> — scripts must be inline fragments",
+    );
+  }
+}
+
 type ChannelOptions = {
   allowlistDoc: VerifiableCredential;
   onFollowLink?: (request: FollowLinkRequest) => void | Promise<void>;
@@ -120,6 +135,7 @@ function attachHostChannel(
   let disposed = false;
   let timeout = 0;
   let port1: MessagePort | null = null;
+  let readySettled = false;
 
   const dispose = () => {
     disposed = true;
@@ -141,6 +157,7 @@ function attachHostChannel(
     const data = event.data;
 
     if (data === "ready") {
+      readySettled = true;
       settleReady();
       return;
     }
@@ -152,6 +169,9 @@ function attachHostChannel(
       settleReject(new Error(message));
       return;
     }
+
+    // Extension messages only after successful ready (channel stays open).
+    if (!readySettled) return;
 
     if (
       data &&
@@ -219,9 +239,9 @@ async function handleFollowLink(
   request: FollowLinkRequest,
   options: ChannelOptions,
 ): Promise<void> {
-  if (!isAssertedLink(options.allowlistDoc, request.href)) {
+  if (!isFollowableLink(options.allowlistDoc, request.href)) {
     console.warn(
-      "[host] rejected followLink — href not asserted in credential:",
+      "[host] rejected followLink — href is not a followable linkURL in credential:",
       request.href,
     );
     window.dispatchEvent(

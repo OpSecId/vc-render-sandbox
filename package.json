@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "demo:untp": "node scripts/build-untp-demo.mjs"
+    "digests": "node scripts/stamp-template-digests.mjs",
+    "demo:untp": "node scripts/build-untp-demo.mjs",
+    "test:links": "npx --yes tsx scripts/test-links.mjs"
   },
   "devDependencies": {
     "@types/marked": "^5.0.2",

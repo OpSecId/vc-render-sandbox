@@ -33,7 +33,7 @@ a {
 }
 
 #app {
-  max-width: 960px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 2rem 1.25rem 3rem;
 }
@@ -51,6 +51,87 @@ a {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+}
+
+.strict-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+  cursor: pointer;
+}
+
+.strict-toggle input {
+  accent-color: var(--accent);
+}
+
+.strict-toggle:has(input:checked) {
+  color: var(--accent);
+}
+
+.consent-dialog {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0;
+  max-width: min(32rem, calc(100vw - 2rem));
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.consent-dialog::backdrop {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.consent-dialog form {
+  margin: 0;
+  padding: 1.15rem 1.25rem 1.25rem;
+}
+
+.consent-dialog h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.1rem;
+}
+
+.consent-lead {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.consent-meta {
+  margin: 0 0 1rem;
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.35rem 0.65rem;
+  font-size: 0.88rem;
+}
+
+.consent-meta dt {
+  color: var(--muted);
+}
+
+.consent-meta dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.consent-url {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
 }
 
 .github-link {
@@ -390,14 +471,18 @@ header code {
 
 .doc-panel {
   margin-top: 0.25rem;
+  display: flex;
+  justify-content: center;
 }
 
 .doc-article {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 1.35rem 1.5rem 2rem;
-  max-width: 48rem;
+  padding: 1.5rem 2rem 2.25rem;
+  width: 100%;
+  max-width: 56rem;
+  margin: 0 auto;
 }
 
 .prose h1 {

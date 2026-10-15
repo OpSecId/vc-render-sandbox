@@ -2,6 +2,7 @@
  * Build a local UNTP copper-cathode credential graph for host-mediated traversal.
  * Source samples: https://untp.unece.org/artefacts/samples/v0.8.0/
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +36,12 @@ const FILES = {
 const credentialUrl = (name) => `${PUBLIC_BASE}/credentials/untp/${name}`;
 const templateUrl = (name) => `${PUBLIC_BASE}/templates/${name}`;
 
+function digestMultibase(content) {
+  const hash = createHash("sha256").update(content).digest();
+  const mh = Buffer.concat([Buffer.from([0x12, 0x20]), hash]);
+  return `u${mh.toString("base64url")}`;
+}
+
 function link(linkURL, linkName, linkType = "https://test.uncefact.org/vocabulary/link-type/dcc") {
   return {
     linkURL,
@@ -45,6 +52,8 @@ function link(linkURL, linkName, linkType = "https://test.uncefact.org/vocabular
 }
 
 function htmlMethod(name, templateFile, renderProperty, height = "560px") {
+  const filePath = path.join(root, "templates", templateFile);
+  const digest = digestMultibase(fs.readFileSync(filePath));
   return {
     type: "SuiteRenderMethod",
     renderSuite: "html",
@@ -52,7 +61,11 @@ function htmlMethod(name, templateFile, renderProperty, height = "560px") {
     description:
       "Ported to W3C html suite for vc-render-sandbox host-mediated link demo (UNTP v0.8.0 sample).",
     renderProperty,
-    template: { id: templateUrl(templateFile), mediaType: "text/html" },
+    template: {
+      id: templateUrl(templateFile),
+      mediaType: "text/html",
+      digestMultibase: digest,
+    },
     outputPreference: {
       accessMode: ["visual"],
       mediaType: "text/html",
