@@ -43,7 +43,7 @@ See **Doc** in the app or [docs/html-host-mediated-links.md](docs/html-host-medi
 |-----|------|
 | `window.renderMethodFollow({ href, linkType?, label? })` | Template asks host to open a link (no iframe `fetch` / top-nav) |
 | Host allowlist | `href` MUST appear in the filtered credential |
-| Host fetch | Same-origin credential JSON only in this sandbox |
+| Host fetch | Asserted `https:` URLs (any origin; target must allow CORS). `http://localhost` for local dev. |
 
 ## GitHub Pages
 

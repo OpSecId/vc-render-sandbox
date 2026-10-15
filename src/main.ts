@@ -393,13 +393,20 @@ function currentMethod(): RenderMethod | null {
   return listRenderMethods(entry.vc)[entry.methodIndex] ?? null;
 }
 
+/**
+ * Host policy for followLink fetches. Asserted-URI allowlisting happens first
+ * in the html host; this only restricts URL schemes / local http.
+ * Cross-origin https is allowed — the target must still send CORS headers.
+ */
 function isCredentialFetchAllowed(href: string): boolean {
   if (href.startsWith("/")) return true;
   try {
     const url = new URL(href, window.location.href);
-    if (url.origin === window.location.origin) return true;
-    // Published demo graph uses absolute Pages URLs.
-    if (url.origin === PUBLIC_HOST && url.pathname.startsWith("/vc-render-sandbox/")) {
+    if (url.protocol === "https:") return true;
+    if (
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    ) {
       return true;
     }
     return false;
@@ -425,7 +432,7 @@ async function onFollowLink(request: FollowLinkRequest) {
 
   if (!isCredentialFetchAllowed(request.href)) {
     const msg =
-      `Host refused followLink to cross-origin URL (sandbox only fetches same-origin credential JSON): ${request.href}`;
+      `Host refused followLink — only https (or http://localhost) URLs are fetched: ${request.href}`;
     setStatus(msg, true);
     pushLog(msg);
     renderMetaExtras();
