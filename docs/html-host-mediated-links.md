@@ -13,7 +13,7 @@ The W3C `html` render suite confines issuer-supplied template code in a sandboxe
 
 Trade and supply-chain credentials have an additional requirement: a consumer must be able to **follow issuer-asserted links** from a rendered passport (or facility record, traceability event, etc.) to a related verifiable credential and inspect that evidence.
 
-This document defines a small **extension profile** (not part of the W3C TR) on top of a conformant HTML suite host: **host-mediated links**. The template may *propose* opening a URI that appears as a `linkURL` property in the filtered credential; the **host page** validates the request, obtains user consent when the target is cross-origin, and performs any retrieval outside the sandbox.
+This document defines a small **extension profile** (not part of the W3C TR) on top of a conformant HTML suite host: **host-mediated links**. The template may *propose* opening a URI that appears as a `linkURL` property in the filtered credential; the **host page** validates the request, obtains user consent before fetch (this sandbox always; production hosts MAY skip same-origin), and performs any retrieval outside the sandbox.
 
 The template never gains network access or top-level navigation capability. Wallets that implement only the TR need not implement `renderMethodFollow`; templates SHOULD degrade gracefully when it is absent.
 
@@ -135,7 +135,7 @@ window.renderMethodReady(new Error("…"))
 Inputs: active filtered credential `filtered`, request `req`.
 
 1. If `req.href` is not a followable `linkURL` in `filtered`, **reject** the request. Emit a host-visible error or log; do not fetch.
-2. If the target origin differs from the host origin, **obtain user consent** (or use a prior session approval for that origin) before fetching.
+2. **Obtain user consent** (or use a prior session approval for that origin) before fetching. This sandbox prompts for every followLink — including same-origin — so the consent UX is visible on GitHub Pages demos; production hosts MAY skip same-origin.
 3. Classify the target (host policy), for example:
    - **credential follow** — JSON document with `type` including `VerifiableCredential`; host retrieves and may render it
    - **non-credential** — HTML page, PDF, etc.; this sandbox **refuses** (does not open as a credential)
@@ -271,7 +271,7 @@ A host that:
 
 1. Implements the HTML suite confinement requirements, and  
 2. Accepts `followLink` only for `linkURL` values in the filtered credential, and  
-3. Performs retrieval only in host context under user control (consent when cross-origin), and  
+3. Performs retrieval only in host context under user control (consent before fetch), and  
 4. Does not render a follow target as a credential unless it has VC shape.
 
 ---
@@ -327,14 +327,19 @@ Addressed threat-model and “soft allowlist” gaps from review:
 |-----------|----------|
 | **`linkURL`-only allowlist** | Follow targets must equal a `linkURL` property in the filtered VC — not every URI-shaped string (`issuer.id`, subject ids, etc.). |
 | **Strict mode** (default on) | Remote/embedded templates **require** `digestMultibase`; host verifies SHA-256 multihash (`u` prefix) before `srcdoc` inject. Toggle off only for demo of unsigned templates. |
-| **Cross-origin consent** | Before fetching an asserted URL on another origin, the host shows label / origin / URL / `linkType` and requires Deny / Allow once / Allow origin (session). Consent keys off the **asserted** URL, not any local mirror. |
+| **Follow consent** | Before host fetch of an asserted `linkURL`, show label / origin / URL / `linkType` and require Deny / Allow once / Allow origin (session). Keys off the **asserted** URL (not a local mirror). This sandbox prompts even for same-origin so Pages demos surface the UX. |
 | **CSP nonce** | Per-page nonce installed before app load; wrapper + template `<script>` tags stamped with the same nonce. Parent `script-src` is `'self' 'nonce-…'` (no script `'unsafe-inline'`). Wrapper CSP blocks network (`default-src data:`). |
 | **Template hygiene** | Reject remote `<script src>` in fragments. |
 | **VC shape on follow** | Followed JSON must include `type` `VerifiableCredential` before stack/render. |
 | **Local mirror for digests** | Asserted Pages URLs for this app may be fetched from the local stamped tree after consent so Strict digests work before Pages redeploy; debug log notes the mirror. |
 | **Profile framing** | Documented as HTML suite host **plus** optional extension — not a claim that `renderMethodFollow` is in the W3C TR. |
 
-Cross-origin consent and the `linkURL` allowlist remain on even when Strict is off. Strict only gates **template digest** requirement.
+Follow consent and the `linkURL` allowlist remain on even when Strict is off. Strict only gates **template digest** requirement.
+
+### R4 — Same-origin follow consent (demo)
+
+- Host prompts on every `followLink` (not only cross-origin) so GitHub Pages demos show the modal; session **Allow origin** still skips repeats.
+- **New** clears session origin approvals.
 
 ---
 

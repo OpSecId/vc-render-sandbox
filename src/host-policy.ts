@@ -9,7 +9,11 @@ const STORAGE_STRICT = "vcrender:strict-mode";
 export type HostPolicy = {
   /** Refuse remote templates without digestMultibase (default true). */
   requireTemplateDigest: boolean;
-  /** Prompt before fetching a followLink target on another origin (default true). */
+  /**
+   * Prompt before host-mediated followLink fetch (default true).
+   * Applies to same-origin too so Pages demos show consent; session
+   * "Allow origin" still skips repeats. Name kept for API stability.
+   */
   requireCrossOriginConsent: boolean;
 };
 
@@ -64,6 +68,14 @@ export function approveOrigin(origin: string): void {
   set.add(origin);
   try {
     sessionStorage.setItem(STORAGE_ORIGINS, JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearApprovedOrigins(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_ORIGINS);
   } catch {
     /* ignore */
   }

@@ -5,6 +5,7 @@ import type { FollowLinkRequest } from "./html/messages";
 import {
   approveOrigin,
   assertVerifiableCredentialShape,
+  clearApprovedOrigins,
   isOriginPreapproved,
   isSameOriginHref,
   loadStrictMode,
@@ -53,7 +54,7 @@ function mountShell() {
       <div class="header-row">
         <h1>VC Render Sandbox</h1>
         <div class="header-tools">
-          <label class="strict-toggle" title="Require template digests; always consent on cross-origin follow">
+          <label class="strict-toggle" title="Require template digests; followLink always prompts for consent">
             <input type="checkbox" id="strict-mode" ${strictMode ? "checked" : ""} />
             <span>Strict</span>
           </label>
@@ -94,8 +95,8 @@ function mountShell() {
       <form method="dialog" id="consent-form">
         <h2>Allow host to fetch this link?</h2>
         <p class="consent-lead">
-          The template requested a cross-origin credential. The sandboxed iframe cannot fetch it;
-          the host will if you approve.
+          The sandboxed iframe cannot fetch credentials. The host will retrieve this
+          asserted <code>linkURL</code> only if you approve.
         </p>
         <dl class="consent-meta">
           <dt>Label</dt><dd id="consent-label"></dd>
@@ -369,11 +370,13 @@ function renderNav() {
     clearMount();
     stack = [];
     eventLog = [];
+    clearApprovedOrigins();
     setDemoLoaded(false);
     document.getElementById("toolbar")!.innerHTML = "";
     document.getElementById("output")!.innerHTML = "";
     document.getElementById("nav")!.innerHTML = "";
     setStatus("");
+    pushLog("HOST cleared session origin approvals");
   });
 }
 
@@ -502,21 +505,28 @@ async function onFollowLink(request: FollowLinkRequest) {
     return;
   }
 
-  // Consent uses the issuer-asserted URL (may be cross-origin Pages).
-  // Fetch may use a local mirror afterward for stamped digests.
+  // Consent keys off the issuer-asserted URL (not any local mirror).
+  // Prompt on every followLink — including same-origin Pages demos — unless
+  // the user chose "Allow origin" for this session. Fetch may still rewrite
+  // to a local stamped mirror afterward for Strict digests.
   const policy = policyFromStrict(strictMode);
   const assertedOrigin = originOfHref(request.href);
 
-  if (policy.requireCrossOriginConsent && !isSameOriginHref(request.href)) {
+  if (policy.requireCrossOriginConsent) {
     if (!assertedOrigin) {
       setStatus(`Host refused followLink — invalid URL: ${request.href}`, true);
       return;
     }
-    if (!isOriginPreapproved(assertedOrigin)) {
+    if (isOriginPreapproved(assertedOrigin)) {
+      pushLog(
+        `HOST followLink consent skipped (origin pre-approved) → ${assertedOrigin}` +
+          (isSameOriginHref(request.href) ? " (same-origin)" : ""),
+      );
+    } else {
       const decision = await requestCrossOriginConsent(request);
       if (decision === "cancel") {
         pushLog(`HOST followLink denied by user → ${request.href}`);
-        setStatus("Cross-origin follow denied.");
+        setStatus("Follow denied.");
         renderMetaExtras();
         return;
       }
@@ -657,7 +667,7 @@ async function refresh() {
         templateSource: result.templateSource,
         followableLinkUrls: [...collectFollowableUrls(result.filteredCredential)],
         filteredCredential: result.filteredCredential,
-        note: "followLink hrefs must be linkURL values in the filtered VC; host fetches after consent when cross-origin.",
+        note: "followLink hrefs must be linkURL values in the filtered VC; host fetches after consent.",
       },
       null,
       2,

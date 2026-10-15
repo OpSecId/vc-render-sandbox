@@ -13,7 +13,7 @@ npm run dev
 Open http://localhost:5173
 
 - **Demo** (`#demo`) — UNTP cathode graph / simple passport / drop JSON
-- **Strict** (header toggle, default on) — require template digests; consent on cross-origin follow
+- **Strict** (header toggle, default on) — require template digests; followLink always prompts for consent
 - **Doc** (`#doc`) — extension draft
 
 ## Profiles
@@ -21,7 +21,7 @@ Open http://localhost:5173
 | Profile | What it is |
 |---------|------------|
 | HTML suite host | `sandbox="allow-scripts"`, `frame-src 'none'`, `srcdoc` + digest check, MessageChannel `renderMethodReady`, `selectJsonLd` filtering |
-| Host-mediated links (extension) | `renderMethodFollow` over the same MessageChannel; only `linkURL` values; host fetches; cross-origin consent |
+| Host-mediated links (extension) | `renderMethodFollow` over the same MessageChannel; only `linkURL` values; host fetches after consent |
 
 Templates MUST still call `renderMethodReady()`. If `renderMethodFollow` is missing, link controls SHOULD degrade (this demo’s templates check for the function).
 
@@ -31,7 +31,7 @@ Templates MUST still call `renderMethodReady()`. If `renderMethodFollow` is miss
 - Per-page CSP **nonce** on parent + stamped onto wrapper/template scripts (no `'unsafe-inline'` for scripts)
 - Wrapper CSP blocks network; rejects `<html>/<head>/<body>` and remote `<script src>`
 - Strict mode: remote/embedded templates require verifying `digestMultibase`
-- Cross-origin follow: modal consent (Allow once / Allow origin for session / Deny)
+- Follow consent: modal (Allow once / Allow origin for session / Deny), including same-origin Pages demos
 - Followed document must be JSON with `type` including `VerifiableCredential`
 
 ## UNTP copper cathode graph
