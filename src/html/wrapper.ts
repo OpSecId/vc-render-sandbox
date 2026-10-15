@@ -7,11 +7,9 @@ import type { VerifiableCredential } from "../types";
  * Bridge APIs for template scripts:
  * - window.renderMethodReady(err?) — signal host that rendering finished
  * - window.renderMethodFollow({ href, linkType?, label? }) — host-mediated link
+ *   (sandbox extension; rides the same MessageChannel)
  *
- * Messaging uses parent.postMessage with a per-mount handshake id. MessageChannel
- * port transfer into opaque-origin sandboxed srcdoc iframes is unreliable across
- * browsers; the security properties (no network, no top-nav, no host DOM) still
- * come from iframe sandbox + wrapper CSP.
+ * Communication uses MessageChannel as required by the HTML suite algorithm.
  *
  * @see https://www.w3.org/TR/vc-render-method/#wrapper-code
  */
@@ -19,7 +17,6 @@ import type { VerifiableCredential } from "../types";
 export function buildWrapperSrcdoc(
   filteredCredential: VerifiableCredential,
   templateHtml: string,
-  handshakeId: string,
 ): string {
   const credentialJson = JSON.stringify(filteredCredential).replace(
     /<\/script/gi,
@@ -29,36 +26,40 @@ export function buildWrapperSrcdoc(
   const bridgeScript = `
 <script>
 (function () {
-  var handshakeId = ${JSON.stringify(handshakeId)};
-
-  function send(payload) {
-    payload.type = 'vcrender';
-    payload.handshakeId = handshakeId;
-    try {
-      window.parent.postMessage(payload, '*');
-    } catch (e) {}
-  }
+  var portPromise = new Promise(function (resolve) {
+    window.addEventListener('message', function start(event) {
+      if (event.data === 'start' && event.ports && event.ports[0]) {
+        window.removeEventListener('message', start);
+        var port = event.ports[0];
+        port.start();
+        resolve(port);
+      }
+    });
+  });
 
   window.renderMethodReady = function (err) {
-    if (!err) {
-      send({ event: 'ready' });
-    } else {
-      send({
-        event: 'error',
-        error: { message: err && err.message ? err.message : String(err) }
-      });
-    }
+    portPromise.then(function (port) {
+      if (!err) {
+        port.postMessage('ready');
+      } else {
+        port.postMessage({
+          error: { message: err && err.message ? err.message : String(err) }
+        });
+      }
+    });
   };
 
   window.renderMethodFollow = function (request) {
     if (!request || typeof request.href !== 'string') {
       throw new Error('renderMethodFollow requires { href: string }');
     }
-    send({
-      event: 'followLink',
-      href: request.href,
-      linkType: request.linkType,
-      label: request.label
+    portPromise.then(function (port) {
+      port.postMessage({
+        type: 'followLink',
+        href: request.href,
+        linkType: request.linkType,
+        label: request.label
+      });
     });
   };
 })();

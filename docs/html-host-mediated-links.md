@@ -63,11 +63,11 @@ This extension does **not** change:
 | iframe `sandbox` | `allow-scripts` only (no `allow-top-navigation*`, no `allow-same-origin`) |
 | Host CSP | `frame-src 'none'` (templates via `srcdoc` after preload / digest check) |
 | Wrapper CSP | `default-src data: 'unsafe-inline'` (no network from template) |
-| Ready / error | Template signals completion via `renderMethodReady` |
+| Ready / error | Template signals completion via `renderMethodReady` over a `MessageChannel` |
 
-It **adds** an optional request channel from template → host for link traversal.
+It **adds** an optional request channel from template → host for link traversal (same `MessageChannel` port after `ready`).
 
-> **Note (browser CSP):** Implementations have observed that browsers also enforce the *parent* document CSP on `about:srcdoc` documents. Host pages that set `script-src` without `'unsafe-inline'` (or a nonce/hash covering wrapper and template scripts) will block template execution entirely. That is a host CSP authoring concern, not a relaxation of wrapper CSP.
+> **Note (browser CSP):** Browsers also enforce the *parent* document CSP on `about:srcdoc` documents. Host pages that set `script-src` without `'unsafe-inline'` (or a nonce/hash covering wrapper and template scripts) will block template execution entirely. That is a host CSP authoring concern, not a relaxation of wrapper CSP.
 
 ---
 

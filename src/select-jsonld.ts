@@ -1,60 +1,178 @@
-import { getByPointer, setByPointer } from "./json-pointer";
+import { parsePointer } from "./json-pointer";
 import type { VerifiableCredential } from "./types";
 
 /**
- * Approximation of the Data Integrity `selectJsonLd` algorithm for sandbox use.
- * Copies each `renderProperty` JSON Pointer into a new document and always
- * preserves `@context` and `type` when present (needed for VC-shaped templates).
+ * `selectJsonLd` per VC-DI-ECDSA §3.4.13 (compact JSON-LD / aliased id+type).
+ * Used by the HTML suite to build the filtered credential data block.
  *
  * @see https://www.w3.org/TR/vc-di-ecdsa/#selectjsonld
  * @see https://www.w3.org/TR/vc-render-method/#html-template-processing
  */
-export function selectJsonLd(
-  document: VerifiableCredential,
-  pointers: string[],
-): VerifiableCredential {
-  const out: Record<string, unknown> = {};
 
-  if ("@context" in document) out["@context"] = document["@context"];
-  if ("type" in document) out.type = document.type;
+function isBlankNodeId(id: unknown): boolean {
+  return typeof id === "string" && id.startsWith("_:");
+}
 
-  for (const pointer of pointers) {
-    const value = getByPointer(document, pointer);
-    if (value === undefined) continue;
-    setByPointer(out, pointer, value);
+function deepCopy<T>(value: T): T {
+  return structuredClone(value);
+}
 
-    // Preserve JSON-LD node identity on intermediate objects when present.
-    const parts = pointer.split("/").filter(Boolean);
-    for (let depth = 1; depth < parts.length; depth++) {
-      const parentPointer = "/" + parts.slice(0, depth).join("/");
-      const parent = getByPointer(document, parentPointer);
-      if (parent && typeof parent === "object" && !Array.isArray(parent) && "id" in parent) {
-        const selectedParent = getByPointer(out, parentPointer);
-        if (
-          selectedParent &&
-          typeof selectedParent === "object" &&
-          !Array.isArray(selectedParent) &&
-          !("id" in (selectedParent as object))
-        ) {
-          (selectedParent as Record<string, unknown>).id = (parent as { id: unknown }).id;
+/** §3.4.11 createInitialSelection */
+function createInitialSelection(source: Record<string, unknown>): Record<string, unknown> {
+  const selection: Record<string, unknown> = {};
+  if ("id" in source && !isBlankNodeId(source.id)) {
+    selection.id = source.id;
+  }
+  if ("type" in source) {
+    selection.type = deepCopy(source.type);
+  }
+  return selection;
+}
+
+/**
+ * §3.4.12 selectPaths — populate selectionDocument along one pointer path.
+ * Tracks sparse arrays so they can be densified after all pointers.
+ */
+function selectPaths(
+  paths: string[],
+  document: Record<string, unknown>,
+  selectionDocument: Record<string, unknown>,
+  arrays: unknown[][],
+): void {
+  let parentValue: unknown = document;
+  let value: unknown = parentValue;
+  let selectedParent: Record<string, unknown> | unknown[] = selectionDocument;
+  let selectedValue: unknown = selectedParent;
+
+  for (const path of paths) {
+    selectedParent = selectedValue as Record<string, unknown> | unknown[];
+    parentValue = value;
+
+    if (parentValue == null || typeof parentValue !== "object") {
+      throw new Error(`JSON pointer does not match the document at "${path}"`);
+    }
+
+    if (Array.isArray(parentValue)) {
+      const index = Number(path);
+      if (!Number.isInteger(index) || index < 0) {
+        throw new Error(`JSON pointer does not match the document at "${path}"`);
+      }
+      value = parentValue[index];
+    } else {
+      value = (parentValue as Record<string, unknown>)[path];
+    }
+
+    if (value === undefined) {
+      throw new Error(`JSON pointer does not match the document at "/${paths.join("/")}"`);
+    }
+
+    if (Array.isArray(selectedParent)) {
+      const index = Number(path);
+      selectedValue = selectedParent[index];
+      if (selectedValue === undefined) {
+        if (Array.isArray(value)) {
+          selectedValue = [];
+          arrays.push(selectedValue as unknown[]);
+        } else if (value !== null && typeof value === "object") {
+          selectedValue = createInitialSelection(value as Record<string, unknown>);
+        } else {
+          selectedValue = undefined;
         }
+        selectedParent[index] = selectedValue;
+      }
+    } else {
+      selectedValue = selectedParent[path];
+      if (selectedValue === undefined) {
+        if (Array.isArray(value)) {
+          selectedValue = [];
+          arrays.push(selectedValue as unknown[]);
+        } else if (value !== null && typeof value === "object") {
+          selectedValue = createInitialSelection(value as Record<string, unknown>);
+        } else {
+          selectedValue = undefined;
+        }
+        selectedParent[path] = selectedValue;
       }
     }
   }
 
-  return out as VerifiableCredential;
+  // Target value selection (§3.4.12 steps 7–11)
+  const lastPath = paths[paths.length - 1]!;
+  let finalValue: unknown;
+  if (value === null || typeof value !== "object") {
+    finalValue = value;
+  } else if (Array.isArray(value)) {
+    finalValue = deepCopy(value);
+  } else {
+    const base =
+      selectedValue && typeof selectedValue === "object" && !Array.isArray(selectedValue)
+        ? (selectedValue as Record<string, unknown>)
+        : {};
+    finalValue = { ...base, ...deepCopy(value as Record<string, unknown>) };
+  }
+
+  if (Array.isArray(selectedParent)) {
+    selectedParent[Number(lastPath)] = finalValue;
+  } else {
+    selectedParent[lastPath] = finalValue;
+  }
+}
+
+function densifyArray(arr: unknown[]): void {
+  let write = 0;
+  for (let read = 0; read < arr.length; read++) {
+    if (arr[read] !== undefined) {
+      arr[write++] = arr[read];
+    }
+  }
+  arr.length = write;
+}
+
+/** §3.4.13 selectJsonLd */
+export function selectJsonLd(
+  document: VerifiableCredential,
+  pointers: string[],
+): VerifiableCredential | null {
+  if (pointers.length === 0) return null;
+
+  const arrays: unknown[][] = [];
+  const selectionDocument = createInitialSelection(document as Record<string, unknown>);
+
+  if ("@context" in document) {
+    selectionDocument["@context"] = deepCopy(document["@context"]);
+  }
+
+  for (const pointer of pointers) {
+    const paths = parsePointer(pointer);
+    if (paths.length === 0) {
+      throw new Error("Cannot select the root document with an empty JSON pointer");
+    }
+    selectPaths(
+      paths,
+      document as Record<string, unknown>,
+      selectionDocument,
+      arrays,
+    );
+  }
+
+  for (const arr of arrays) {
+    densifyArray(arr);
+  }
+
+  return selectionDocument as VerifiableCredential;
 }
 
 export function filterCredential(
   vc: VerifiableCredential,
   renderProperty: string[] | undefined,
 ): VerifiableCredential {
-  if (!renderProperty || renderProperty.length === 0) {
-    // Do not pass renderMethod itself into the template data block by default —
-    // templates render claims, not the method descriptor. Spec says "entire VC"
-    // when absent; we strip only renderMethod to avoid recursion / bloat.
-    const { renderMethod: _rm, ...rest } = vc;
-    return rest as VerifiableCredential;
+  // Spec: if renderProperty is not present, the entire verifiable credential is used.
+  if (renderProperty == null) {
+    return deepCopy(vc);
   }
-  return selectJsonLd(vc, renderProperty);
+  const selected = selectJsonLd(vc, renderProperty);
+  if (selected == null) {
+    throw new Error("selectJsonLd produced no selection from renderProperty");
+  }
+  return selected;
 }

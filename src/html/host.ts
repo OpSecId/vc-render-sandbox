@@ -17,6 +17,10 @@ import { buildWrapperSrcdoc } from "./wrapper";
 
 const SANDBOX = "allow-scripts";
 
+/** Templates MUST be fragments — no html/head/body (provided by wrapper). */
+const FORBIDDEN_TEMPLATE_TAG =
+  /<\s*\/?\s*(?:html|head|body)\b/i;
+
 export type HostMountOptions = {
   style?: OutputPreference["style"];
   title?: string;
@@ -45,6 +49,9 @@ export async function mountHtmlRenderMethod(
       `Expected renderSuite "html", got ${JSON.stringify(renderMethod.renderSuite)}`,
     );
   }
+  if (renderMethod.template == null) {
+    throw new Error('renderMethod.template is required for the html render suite');
+  }
 
   const filteredCredential = filterCredential(vc, renderMethod.renderProperty);
   const allowlistDoc = options.linkAllowlistDocument ?? filteredCredential;
@@ -52,12 +59,13 @@ export async function mountHtmlRenderMethod(
     digestMultibase: renderMethod.digestMultibase,
   });
 
-  const handshakeId = crypto.randomUUID();
-  const srcdoc = buildWrapperSrcdoc(
-    filteredCredential,
-    resolved.html,
-    handshakeId,
-  );
+  if (FORBIDDEN_TEMPLATE_TAG.test(resolved.html)) {
+    throw new Error(
+      "HTML template MUST be a fragment and MUST NOT include <html>, <head>, or <body> tags",
+    );
+  }
+
+  const srcdoc = buildWrapperSrcdoc(filteredCredential, resolved.html);
 
   host.innerHTML = "";
   host.classList.add("sandbox-host");
@@ -73,11 +81,12 @@ export async function mountHtmlRenderMethod(
   if (style?.width) iframe.style.width = String(style.width);
   if (style?.height) iframe.style.height = String(style.height);
 
-  const { ready, dispose } = attachHostChannel(iframe, handshakeId, {
+  const { ready, dispose } = attachHostChannel(iframe, {
     allowlistDoc,
     onFollowLink: options.onFollowLink,
   });
 
+  // Attach listeners before assigning srcdoc so onload is not missed.
   host.appendChild(iframe);
   iframe.srcdoc = srcdoc;
 
@@ -104,64 +113,77 @@ type ChannelOptions = {
   onFollowLink?: (request: FollowLinkRequest) => void | Promise<void>;
 };
 
-type VcrenderMessage = {
-  type: "vcrender";
-  handshakeId: string;
-  event: "ready" | "error" | "followLink";
-  error?: { message?: string };
-  href?: string;
-  linkType?: string;
-  label?: string;
-};
-
 function attachHostChannel(
   iframe: HTMLIFrameElement,
-  handshakeId: string,
   options: ChannelOptions,
 ): { ready: Promise<void>; dispose: () => void } {
   let disposed = false;
   let timeout = 0;
+  let port1: MessagePort | null = null;
 
   const dispose = () => {
     disposed = true;
     window.clearTimeout(timeout);
-    window.removeEventListener("message", onWindowMessage);
+    iframe.removeEventListener("load", onLoad);
+    try {
+      port1?.close();
+    } catch {
+      /* ignore */
+    }
+    port1 = null;
   };
 
   let settleReady: () => void = () => {};
   let settleReject: (err: Error) => void = () => {};
 
-  const onWindowMessage = (event: MessageEvent) => {
+  const onPortMessage = (event: MessageEvent) => {
     if (disposed) return;
-    const data = event.data as VcrenderMessage | null;
-    if (!data || data.type !== "vcrender" || data.handshakeId !== handshakeId) {
-      return;
-    }
-    // Prefer source match when available; opaque-origin iframes still send the
-    // handshake id so we can accept even if source identity is quirky.
-    if (event.source && event.source !== iframe.contentWindow) return;
+    const data = event.data;
 
-    if (data.event === "ready") {
+    if (data === "ready") {
       settleReady();
       return;
     }
 
-    if (data.event === "error") {
-      settleReject(new Error(data.error?.message ?? "Unknown render error"));
+    if (data && typeof data === "object" && "error" in data) {
+      const message =
+        (data as { error?: { message?: string } }).error?.message ??
+        "Unknown render error";
+      settleReject(new Error(message));
       return;
     }
 
-    if (data.event === "followLink" && typeof data.href === "string") {
+    if (
+      data &&
+      typeof data === "object" &&
+      (data as { type?: string }).type === "followLink" &&
+      typeof (data as { href?: unknown }).href === "string"
+    ) {
       void handleFollowLink(
         {
           type: "followLink",
-          href: data.href,
-          linkType: data.linkType,
-          label: data.label,
+          href: (data as { href: string }).href,
+          linkType: (data as { linkType?: string }).linkType,
+          label: (data as { label?: string }).label,
         },
         options,
       );
     }
+  };
+
+  const onLoad = () => {
+    if (disposed) return;
+    const contentWindow = iframe.contentWindow;
+    if (!contentWindow) {
+      settleReject(new Error("HTML render iframe has no contentWindow"));
+      return;
+    }
+
+    const channel = new MessageChannel();
+    port1 = channel.port1;
+    port1.start();
+    port1.onmessage = onPortMessage;
+    contentWindow.postMessage("start", "*", [channel.port2]);
   };
 
   const ready = new Promise<void>((resolve, reject) => {
@@ -187,7 +209,7 @@ function attachHostChannel(
       );
     }, 8000);
 
-    window.addEventListener("message", onWindowMessage);
+    iframe.addEventListener("load", onLoad);
   });
 
   return { ready, dispose };

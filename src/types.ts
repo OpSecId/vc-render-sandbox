@@ -48,6 +48,6 @@ export type HtmlRenderResult = {
   iframe: HTMLIFrameElement;
   filteredCredential: VerifiableCredential;
   templateSource: string;
-  /** Close the MessageChannel when tearing down the mount. */
+  /** Close the MessageChannel port when tearing down the mount. */
   dispose: () => void;
 };

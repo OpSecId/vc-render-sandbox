@@ -17,15 +17,22 @@
         text('#description', subject.description);
         text('#issuer-name', credential.issuer?.name || credential.issuer);
         text('#registered-id', subject.registeredId);
-        text('#operator', subject.operatedByParty?.name);
+        const parties = Array.isArray(subject.relatedParty) ? subject.relatedParty : [];
+        text(
+          '#operator',
+          parties.map((p) => p.name || p.id).filter(Boolean).join('; ') || '—',
+        );
         text(
           '#country',
           subject.countryOfOperation?.countryName ||
             subject.countryOfOperation?.countryCode ||
             subject.address?.addressCountry,
         );
-        const ft = Array.isArray(subject.facilityType) ? subject.facilityType : [];
-        text('#facility-type', ft.map((t) => t.name || t.code || t).filter(Boolean).join('; ') || '—');
+        const cats = Array.isArray(subject.processCategory) ? subject.processCategory : [];
+        text(
+          '#facility-type',
+          cats.map((t) => t.name || t.code || t).filter(Boolean).join('; ') || '—',
+        );
 
         const docs = Array.isArray(subject.relatedDocument) ? subject.relatedDocument : [];
         const docsEl = document.querySelector('#documents');

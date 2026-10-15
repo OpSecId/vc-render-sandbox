@@ -14,12 +14,13 @@
         text('#title', credential.name || 'Identity anchor');
         text('#subject-id', subject.id);
         text('#issuer-name', credential.issuer?.name || credential.issuer);
-        text('#registered-id', subject.registeredId);
+        text('#registered-id', subject.registeredId || subject.registeredName);
         text('#scheme', subject.idScheme?.name || subject.idScheme?.id);
         text(
           '#country',
-          subject.registrationCountry?.countryName ||
-            subject.registrationCountry?.countryCode,
+          subject.registrar?.name ||
+            subject.recognitionScope ||
+            subject.registeredName,
         );
 
         const docs = Array.isArray(subject.relatedDocument) ? subject.relatedDocument : [];
@@ -73,7 +74,7 @@
   <dl>
     <dt>Registered ID</dt><dd id="registered-id"></dd>
     <dt>Scheme</dt><dd id="scheme"></dd>
-    <dt>Country</dt><dd id="country"></dd>
+    <dt>Registrar / scope</dt><dd id="country"></dd>
   </dl>
   <h2>Related credentials</h2>
   <ul id="documents"></ul>

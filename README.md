@@ -72,11 +72,22 @@ npx vite preview --base /vc-render-sandbox/
 | `src/html/` | Host page + wrapper |
 | `.github/workflows/pages.yml` | Pages deploy |
 
-## Spec notes
+## Spec notes (HTML suite)
 
-- Template must call `window.renderMethodReady()`.
-- Host CSP needs `script-src` `'unsafe-inline'` (or nonce) because browsers enforce parent CSP on `about:srcdoc`.
-- Wrapper CSP remains `default-src data: 'unsafe-inline'` (no template network).
+Implements the [HTML Template Processing](https://www.w3.org/TR/vc-render-method/#html-template-processing) host/wrapper algorithm:
+
+- `iframe` `sandbox="allow-scripts"` only; host CSP includes `frame-src 'none'` (templates via `srcdoc` after preload)
+- Wrapper CSP `default-src data: 'unsafe-inline'`; credential data block `type="application/vc"`
+- Ready/error over `MessageChannel` + `window.renderMethodReady()`
+- `renderProperty` filtering via VC-DI-ECDSA `selectJsonLd` (missing pointers error)
+- `digestMultibase` verified when present (`u` + SHA-256 multihash)
+- Template fragments MUST NOT include `<html>` / `<head>` / `<body>`
+
+**Extension (not in the W3C TR):** `window.renderMethodFollow` for host-mediated links — see Doc tab.
+
+**SHOULD not implemented here:** Oblivious HTTP / privacy relay for template fetches.
+
+**Host CSP note:** parent `script-src` needs `'unsafe-inline'` (or a nonce/hash) because browsers also enforce the parent CSP on `about:srcdoc`.
 
 ## Build
 
