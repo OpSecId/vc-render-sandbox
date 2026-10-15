@@ -49,8 +49,8 @@ function mountShell() {
       <div class="header-row">
         <h1>VC Render Sandbox</h1>
         <nav class="view-tabs" aria-label="App views">
-          <button type="button" id="tab-demo" class="tab" aria-pressed="true">Demo</button>
-          <button type="button" id="tab-doc" class="tab" aria-pressed="false">Doc</button>
+          <a href="#demo" id="tab-demo" class="tab active" aria-current="page">Demo</a>
+          <a href="#doc" id="tab-doc" class="tab">Doc</a>
         </nav>
       </div>
       <p id="header-blurb">
@@ -88,8 +88,7 @@ function mountShell() {
     </section>
   `;
 
-  document.getElementById("tab-demo")!.addEventListener("click", () => setView("demo"));
-  document.getElementById("tab-doc")!.addEventListener("click", () => setView("doc"));
+  window.addEventListener("hashchange", () => setView(viewFromHash(), false));
 
   document.getElementById("load-untp")!.addEventListener("click", () => {
     // Load from the published Pages URL so relatedDocument links are real HTTPS URLs.
@@ -144,24 +143,44 @@ function mountShell() {
   }) as EventListener);
 
   renderDoc();
-  setView("demo");
+  setView(viewFromHash(), false);
+  // Normalize empty hash to #demo so the Doc tab has a stable counterpart.
+  if (!location.hash || location.hash === "#") {
+    history.replaceState(null, "", "#demo");
+  }
 }
 
-function setView(next: AppView) {
+function viewFromHash(): AppView {
+  const hash = (location.hash || "#demo").toLowerCase();
+  if (hash === "#doc" || hash === "#docs") return "doc";
+  return "demo";
+}
+
+function setView(next: AppView, updateHash = true) {
   view = next;
   const demo = document.getElementById("demo-panel")!;
   const doc = document.getElementById("doc-panel")!;
-  const tabDemo = document.getElementById("tab-demo") as HTMLButtonElement;
-  const tabDoc = document.getElementById("tab-doc") as HTMLButtonElement;
+  const tabDemo = document.getElementById("tab-demo") as HTMLAnchorElement;
+  const tabDoc = document.getElementById("tab-doc") as HTMLAnchorElement;
   const blurb = document.getElementById("header-blurb")!;
 
   const showDemo = next === "demo";
   demo.hidden = !showDemo;
   doc.hidden = showDemo;
-  tabDemo.setAttribute("aria-pressed", String(showDemo));
-  tabDoc.setAttribute("aria-pressed", String(!showDemo));
   tabDemo.classList.toggle("active", showDemo);
   tabDoc.classList.toggle("active", !showDemo);
+  if (showDemo) {
+    tabDemo.setAttribute("aria-current", "page");
+    tabDoc.removeAttribute("aria-current");
+  } else {
+    tabDoc.setAttribute("aria-current", "page");
+    tabDemo.removeAttribute("aria-current");
+  }
+
+  const wantHash = showDemo ? "#demo" : "#doc";
+  if (updateHash && location.hash.toLowerCase() !== wantHash) {
+    history.pushState(null, "", wantHash);
+  }
 
   blurb.innerHTML = showDemo
     ? `W3C <a href="https://www.w3.org/TR/vc-render-method/" target="_blank" rel="noreferrer">VC Render Method</a>
@@ -196,7 +215,7 @@ function pushLog(line: string) {
 
 async function loadFile(file: File) {
   try {
-    setView("demo");
+    setView("demo", true);
     const text = await file.text();
     const vc = unwrapVc(JSON.parse(text));
     resetStack(vc, file.name);
@@ -213,7 +232,7 @@ async function loadFile(file: File) {
 
 async function loadUrl(url: string, label: string) {
   try {
-    setView("demo");
+    setView("demo", true);
     const response = await fetch(url, { credentials: "omit" });
     if (!response.ok) throw new Error(`Fetch failed (${response.status}) for ${url}`);
     const vc = unwrapVc(await response.json());

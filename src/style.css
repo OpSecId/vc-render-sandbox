@@ -85,10 +85,15 @@ header strong {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  text-decoration: none;
+}
+
+.view-tabs .tab:hover {
+  color: var(--ink);
 }
 
 .view-tabs .tab.active,
-.view-tabs .tab[aria-pressed="true"] {
+.view-tabs .tab[aria-current="page"] {
   background: var(--accent-soft);
   color: var(--accent);
 }

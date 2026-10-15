@@ -12,8 +12,8 @@ npm run dev
 
 Open http://localhost:5173
 
-- **Demo** → **Start UNTP cathode demo** — walk DPP → DCC / facility / traceability / corporate / identity
-- **Doc** — in-app extension draft ([source](docs/html-host-mediated-links.md))
+- **Demo** (`#demo`) → **Start UNTP cathode demo** — walk DPP → DCC / facility / traceability / corporate / identity
+- **Doc** (`#doc`) — in-app extension draft ([source](docs/html-host-mediated-links.md)); deep link: https://opsecid.github.io/vc-render-sandbox/#doc
 
 ## UNTP copper cathode graph
 
