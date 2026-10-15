@@ -55,32 +55,36 @@ function mountShell() {
       </div>
       <p id="header-blurb">
         W3C <a href="https://www.w3.org/TR/vc-render-method/" target="_blank" rel="noreferrer">VC Render Method</a>
-        <code>html</code> suite host — UNTP copper-cathode supply chain with
-        <strong>host-mediated link traversal</strong>.
+        <code>html</code> host with host-mediated link traversal.
       </p>
     </header>
 
     <section id="demo-panel">
-      <div class="actions">
-        <button type="button" id="load-untp" class="primary">
-          Start UNTP cathode demo
-        </button>
-        <button type="button" id="load-passport" class="secondary">
-          Simple passport
-        </button>
-        <button type="button" id="browse" class="secondary">Browse JSON…</button>
-      </div>
-      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop JSON file">
-        <strong>Drop a VC JSON file here</strong>
-        <span>or start the UNTP graph (hosted on Pages):
-          <code>…/credentials/untp/dpp-cathode.json</code>
-          → DCC / DFR / DTE / DCR / DIA</span>
+      <div id="loader" class="loader">
+        <p class="loader-lead">
+          Open a credential, then follow issuer-asserted links from the rendered template.
+          The host fetches; the iframe never phones home.
+        </p>
+        <div class="actions">
+          <button type="button" id="load-untp" class="primary">
+            UNTP copper cathode
+          </button>
+          <button type="button" id="load-passport" class="secondary">
+            Simple passport
+          </button>
+          <button type="button" id="browse" class="secondary">Open JSON…</button>
+        </div>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop JSON file">
+          Drop a VC JSON file
+        </div>
       </div>
       <input type="file" id="file-input" accept=".json,application/json" hidden />
-      <div id="nav" class="nav" hidden></div>
-      <div id="toolbar"></div>
-      <div id="status" class="status"></div>
-      <div id="output"></div>
+      <div id="status" class="status" aria-live="polite"></div>
+      <div id="workspace" class="workspace" hidden>
+        <div id="nav" class="nav"></div>
+        <div id="toolbar"></div>
+        <div id="output"></div>
+      </div>
     </section>
 
     <section id="doc-panel" class="doc-panel" hidden>
@@ -184,10 +188,15 @@ function setView(next: AppView, updateHash = true) {
 
   blurb.innerHTML = showDemo
     ? `W3C <a href="https://www.w3.org/TR/vc-render-method/" target="_blank" rel="noreferrer">VC Render Method</a>
-        <code>html</code> suite host — UNTP copper-cathode supply chain with
-        <strong>host-mediated link traversal</strong>.`
-    : `Extension draft: <strong>Host-Mediated Links for the HTML Render Suite</strong>
-        — how templates request issuer-asserted credential links without phoning home.`;
+        <code>html</code> host with host-mediated link traversal.`
+    : `Draft: host-mediated links for the HTML suite — templates request issuer-asserted URLs; the host fetches.`;
+}
+
+function setDemoLoaded(loaded: boolean) {
+  const loader = document.getElementById("loader");
+  const workspace = document.getElementById("workspace");
+  if (loader) loader.hidden = loaded;
+  if (workspace) workspace.hidden = !loaded;
 }
 
 function renderDoc() {
@@ -223,16 +232,15 @@ async function loadFile(file: File) {
   } catch (err) {
     clearMount();
     stack = [];
+    setDemoLoaded(false);
     setStatus(err instanceof Error ? err.message : String(err), true);
-    document.getElementById("toolbar")!.innerHTML = "";
-    document.getElementById("output")!.innerHTML = "";
-    document.getElementById("nav")!.hidden = true;
   }
 }
 
 async function loadUrl(url: string, label: string) {
   try {
     setView("demo", true);
+    setStatus(`Loading ${label}…`);
     const response = await fetch(url, { credentials: "omit" });
     if (!response.ok) throw new Error(`Fetch failed (${response.status}) for ${url}`);
     const vc = unwrapVc(await response.json());
@@ -240,6 +248,7 @@ async function loadUrl(url: string, label: string) {
     pushLog(`Host loaded ${url}`);
     await refresh();
   } catch (err) {
+    setDemoLoaded(false);
     setStatus(err instanceof Error ? err.message : String(err), true);
   }
 }
@@ -256,7 +265,8 @@ function resetStack(vc: VerifiableCredential, label: string) {
       methodIndex: htmlIdx >= 0 ? htmlIdx : 0,
     },
   ];
-  setStatus(`Loaded ${label}`);
+  setDemoLoaded(true);
+  setStatus("");
 }
 
 function clearMount() {
@@ -267,11 +277,9 @@ function clearMount() {
 function renderNav() {
   const nav = document.getElementById("nav")!;
   if (stack.length === 0) {
-    nav.hidden = true;
     nav.innerHTML = "";
     return;
   }
-  nav.hidden = false;
   const crumbs = stack
     .map((entry, i) => {
       const currentMark = i === stack.length - 1 ? ' aria-current="page"' : "";
@@ -282,9 +290,12 @@ function renderNav() {
   nav.innerHTML = `
     <div class="nav-row">
       <ol class="crumbs">${crumbs}</ol>
-      <button type="button" id="back-btn" class="secondary" ${stack.length < 2 ? "disabled" : ""}>
-        ← Back
-      </button>
+      <div class="nav-actions">
+        <button type="button" id="back-btn" class="secondary" ${stack.length < 2 ? "disabled" : ""}>
+          ← Back
+        </button>
+        <button type="button" id="reset-btn" class="secondary ghost">New</button>
+      </div>
     </div>
   `;
   document.getElementById("back-btn")?.addEventListener("click", () => {
@@ -293,6 +304,16 @@ function renderNav() {
     stack.pop();
     pushLog(`Host navigated back to ${current()?.label}`);
     void refresh();
+  });
+  document.getElementById("reset-btn")?.addEventListener("click", () => {
+    clearMount();
+    stack = [];
+    eventLog = [];
+    setDemoLoaded(false);
+    document.getElementById("toolbar")!.innerHTML = "";
+    document.getElementById("output")!.innerHTML = "";
+    document.getElementById("nav")!.innerHTML = "";
+    setStatus("");
   });
 }
 
@@ -305,12 +326,14 @@ function renderToolbar() {
   }
 
   const methods = listRenderMethods(entry.vc);
-  const methodOptions =
-    methods.length === 0
-      ? `<option value="0">(no renderMethod)</option>`
-      : methods
-          .map((m, i) => `<option value="${i}">${escapeAttr(describeMethod(m, i))}</option>`)
-          .join("");
+  if (methods.length <= 1) {
+    toolbar.innerHTML = "";
+    return;
+  }
+
+  const methodOptions = methods
+    .map((m, i) => `<option value="${i}">${escapeAttr(describeMethod(m, i))}</option>`)
+    .join("");
 
   toolbar.innerHTML = `
     <div class="field">
@@ -435,31 +458,37 @@ function renderMetaExtras() {
 
 async function refresh() {
   if (view !== "demo") return;
+  const entry = current();
+  if (!entry) {
+    setDemoLoaded(false);
+    return;
+  }
+
+  setDemoLoaded(true);
   renderNav();
   renderToolbar();
   const output = document.getElementById("output")!;
-  const entry = current();
-  if (!entry) {
-    output.innerHTML = "";
-    return;
-  }
 
   const method = currentMethod();
   clearMount();
 
   output.innerHTML = `
-    <div class="panel">
-      <div class="panel-header">Sandbox preview (iframe · allow-scripts only)</div>
-      <div id="sandbox"></div>
+    <div class="panel preview">
+      <div id="sandbox" class="sandbox-host"></div>
     </div>
-    <div class="panel meta">
-      <div class="panel-header">Host event log</div>
-      <pre id="event-log"></pre>
-    </div>
-    <div class="panel meta">
-      <div class="panel-header">Filtered credential / allowlisted URLs</div>
-      <pre id="meta"></pre>
-    </div>
+    <details class="debug">
+      <summary>Host debug</summary>
+      <div class="debug-grid">
+        <div class="panel meta">
+          <div class="panel-header">Event log</div>
+          <pre id="event-log"></pre>
+        </div>
+        <div class="panel meta">
+          <div class="panel-header">Filtered credential / allowlisted URLs</div>
+          <pre id="meta"></pre>
+        </div>
+      </div>
+    </details>
   `;
 
   const sandbox = document.getElementById("sandbox")!;
@@ -492,7 +521,7 @@ async function refresh() {
       onFollowLink,
     });
     disposeMount = result.dispose;
-    setStatus(`HTML suite ready · template ${result.templateSource}`);
+    setStatus("");
     metaEl.textContent = JSON.stringify(
       {
         stack: stack.map((s) => s.label),
