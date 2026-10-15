@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Host CSP:
+      - frame-src 'none' forces srcdoc (W3C html suite).
+      - script-src needs 'unsafe-inline' (or a nonce/hash) because browsers also
+        enforce the *parent* CSP on about:srcdoc documents. Without it, wrapper
+        + template inline scripts are blocked and renderMethodReady never runs.
+      - Wrapper still adds its own CSP: default-src data: 'unsafe-inline'
+        (no network from the template).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https: data:; frame-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <title>VC Render Sandbox</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

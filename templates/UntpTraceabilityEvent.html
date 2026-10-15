@@ -1,0 +1,101 @@
+<div class="card">
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const el = document.querySelector('head > script[name="credential"]');
+        if (!el) throw new Error('credential data block not found');
+        const credential = JSON.parse(el.textContent || 'null');
+        const events = Array.isArray(credential.credentialSubject)
+          ? credential.credentialSubject
+          : credential.credentialSubject
+            ? [credential.credentialSubject]
+            : [];
+
+        const text = (sel, value) => {
+          const node = document.querySelector(sel);
+          if (node) node.textContent = value == null || value === '' ? '—' : String(value);
+        };
+
+        text('#title', credential.name || 'Traceability event');
+        text('#issuer-name', credential.issuer?.name || credential.issuer);
+
+        const list = document.querySelector('#events');
+        for (const ev of events) {
+          const li = document.createElement('li');
+          const types = Array.isArray(ev.type) ? ev.type.join(', ') : ev.type || 'Event';
+          const title = document.createElement('strong');
+          title.textContent = types;
+          li.appendChild(title);
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = [
+            ev.bizStep && `bizStep: ${ev.bizStep}`,
+            ev.action && `action: ${ev.action}`,
+            ev.eventTime && `time: ${ev.eventTime}`,
+          ].filter(Boolean).join(' · ');
+          li.appendChild(meta);
+
+          const qty = Array.isArray(ev.quantityList) ? ev.quantityList : [];
+          for (const q of qty.slice(0, 3)) {
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.textContent = `${q.quantity ?? ''} ${q.uom || ''} · ${q.epcClass || ''}`.trim();
+            li.appendChild(row);
+          }
+          list.appendChild(li);
+        }
+        if (!events.length) list.innerHTML = '<li class="muted">No events in credentialSubject.</li>';
+
+        const docs = Array.isArray(credential.relatedDocument)
+          ? credential.relatedDocument
+          : [];
+        const docsEl = document.querySelector('#documents');
+        for (const doc of docs) {
+          const li = document.createElement('li');
+          if (doc.linkURL && typeof window.renderMethodFollow === 'function') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'link-btn';
+            btn.textContent = doc.linkName || doc.linkURL;
+            btn.addEventListener('click', () => {
+              window.renderMethodFollow({
+                href: doc.linkURL,
+                linkType: doc.linkType || 'relatedDocument',
+                label: doc.linkName || doc.linkURL,
+              });
+            });
+            li.appendChild(btn);
+          } else {
+            li.textContent = doc.linkName || doc.linkURL || 'Document';
+          }
+          docsEl.appendChild(li);
+        }
+        if (!docs.length) docsEl.innerHTML = '<li class="muted">No related credentials.</li>';
+
+        window.renderMethodReady();
+      } catch (err) {
+        window.renderMethodReady(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  </script>
+  <style>
+    :root { color-scheme: light; font-family: "DM Sans", system-ui, sans-serif; --ink:#142033; --muted:#5a6578; --line:#d5dde8; --accent:#b45309; --panel:#fff; }
+    .card { padding: .2rem .1rem .6rem; color: var(--ink); }
+    .eyebrow { margin:0 0 .3rem; font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    h1 { margin:0 0 .25rem; font-size:1.15rem; color:var(--accent); line-height:1.3; }
+    .sub { margin:0 0 .85rem; color:var(--muted); font-size:.92rem; }
+    h2 { margin:1rem 0 .45rem; font-size:.72rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+    ul { margin:0; padding:0; list-style:none; display:grid; gap:.55rem; }
+    li { border:1px solid var(--line); border-radius:10px; padding:.7rem .85rem; background:var(--panel); }
+    .meta, .row { margin-top:.35rem; color:var(--muted); font-size:.88rem; word-break:break-word; }
+    .muted { color:var(--muted); font-size:.82rem; }
+    .link-btn { font:inherit; font-weight:600; font-size:.9rem; color:#fff; background:var(--accent); border:0; border-radius:8px; padding:.45rem .75rem; cursor:pointer; }
+  </style>
+  <p class="eyebrow">UNTP Digital Traceability Event</p>
+  <h1 id="title"></h1>
+  <p class="sub">Issued by <span id="issuer-name"></span></p>
+  <h2>Events</h2>
+  <ul id="events"></ul>
+  <h2>Related credentials</h2>
+  <ul id="documents"></ul>
+</div>

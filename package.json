@@ -1,0 +1,21 @@
+{
+  "name": "vc-render-sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sample host for W3C VC Render Method — html suite and HTML template processing",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "demo:untp": "node scripts/build-untp-demo.mjs"
+  },
+  "devDependencies": {
+    "@types/marked": "^5.0.2",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "marked": "^15.0.12"
+  }
+}

@@ -1,0 +1,88 @@
+<div class="card">
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        const el = document.querySelector('head > script[name="credential"]');
+        if (!el) throw new Error('credential data block not found');
+        const credential = JSON.parse(el.textContent || 'null');
+        const subject = credential.credentialSubject || {};
+        const text = (sel, value) => {
+          const node = document.querySelector(sel);
+          if (node) node.textContent = value == null || value === '' ? '—' : String(value);
+        };
+
+        text('#title', credential.name || subject.name || 'Facility record');
+        text('#facility-name', subject.name);
+        text('#facility-id', subject.id);
+        text('#description', subject.description);
+        text('#issuer-name', credential.issuer?.name || credential.issuer);
+        text('#registered-id', subject.registeredId);
+        text('#operator', subject.operatedByParty?.name);
+        text(
+          '#country',
+          subject.countryOfOperation?.countryName ||
+            subject.countryOfOperation?.countryCode ||
+            subject.address?.addressCountry,
+        );
+        const ft = Array.isArray(subject.facilityType) ? subject.facilityType : [];
+        text('#facility-type', ft.map((t) => t.name || t.code || t).filter(Boolean).join('; ') || '—');
+
+        const docs = Array.isArray(subject.relatedDocument) ? subject.relatedDocument : [];
+        const docsEl = document.querySelector('#documents');
+        for (const doc of docs) {
+          const li = document.createElement('li');
+          if (doc.linkURL && typeof window.renderMethodFollow === 'function') {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'link-btn';
+            btn.textContent = doc.linkName || doc.linkURL;
+            btn.addEventListener('click', () => {
+              window.renderMethodFollow({
+                href: doc.linkURL,
+                linkType: doc.linkType || 'relatedDocument',
+                label: doc.linkName || doc.linkURL,
+              });
+            });
+            li.appendChild(btn);
+          } else {
+            li.textContent = doc.linkName || doc.linkURL || 'Document';
+          }
+          docsEl.appendChild(li);
+        }
+        if (!docs.length) docsEl.innerHTML = '<li class="muted">No related documents.</li>';
+
+        window.renderMethodReady();
+      } catch (err) {
+        window.renderMethodReady(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  </script>
+  <style>
+    :root { color-scheme: light; font-family: "DM Sans", system-ui, sans-serif; --ink:#142033; --muted:#5a6578; --line:#d5dde8; --accent:#0b6e4f; --panel:#fff; }
+    .card { padding: .2rem .1rem .6rem; color: var(--ink); }
+    .eyebrow { margin:0 0 .3rem; font-size:.7rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    h1 { margin:0 0 .25rem; font-size:1.25rem; line-height:1.25; }
+    .sub { margin:0 0 .85rem; color:var(--muted); font-size:.92rem; }
+    .desc { margin:0 0 1rem; line-height:1.45; }
+    h2 { margin:1rem 0 .45rem; font-size:.72rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+    dl { margin:0; display:grid; grid-template-columns:9rem 1fr; gap:.35rem .75rem; border:1px solid var(--line); border-radius:10px; padding:.75rem .9rem; background:var(--panel); }
+    dt { color:var(--muted); font-size:.78rem; } dd { margin:0; word-break:break-word; }
+    ul { margin:0; padding:0; list-style:none; display:grid; gap:.55rem; }
+    li { border:1px solid var(--line); border-radius:10px; padding:.7rem .85rem; background:var(--panel); }
+    .muted { color:var(--muted); font-size:.82rem; }
+    .link-btn { font:inherit; font-weight:600; font-size:.9rem; color:#fff; background:var(--accent); border:0; border-radius:8px; padding:.45rem .75rem; cursor:pointer; }
+  </style>
+  <p class="eyebrow">UNTP Digital Facility Record</p>
+  <h1 id="title"></h1>
+  <p class="sub"><span id="facility-name"></span><br /><code id="facility-id"></code><br />Issued by <span id="issuer-name"></span></p>
+  <p class="desc" id="description"></p>
+  <h2>Facility</h2>
+  <dl>
+    <dt>Registered ID</dt><dd id="registered-id"></dd>
+    <dt>Operator</dt><dd id="operator"></dd>
+    <dt>Country</dt><dd id="country"></dd>
+    <dt>Type</dt><dd id="facility-type"></dd>
+  </dl>
+  <h2>Related credentials</h2>
+  <ul id="documents"></ul>
+</div>
