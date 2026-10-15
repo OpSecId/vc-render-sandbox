@@ -220,7 +220,7 @@ Published UNTP samples may omit `renderMethod` today. Deployments can attach a `
       "/credentialSubject/relatedDocument"
     ],
     "template": {
-      "id": "/templates/UntpDigitalProductPassport.html",
+      "id": "https://opsecid.github.io/vc-render-sandbox/templates/UntpDigitalProductPassport.html",
       "mediaType": "text/html"
     }
   },
@@ -228,7 +228,7 @@ Published UNTP samples may omit `renderMethod` today. Deployments can attach a `
     "name": "LME Grade A Copper Cathode",
     "relatedDocument": [
       {
-        "linkURL": "/credentials/untp-dcc-cathode-scheme.json",
+        "linkURL": "https://opsecid.github.io/vc-render-sandbox/credentials/untp/dcc-cathode-scheme.json",
         "linkName": "SCSA Responsible Cathode Production Attestation",
         "linkType": "https://test.uncefact.org/vocabulary/link-type/dcc",
         "mediaType": "application/ld+json"
