@@ -15,6 +15,11 @@ import {
 
 const app = document.getElementById("app")!;
 
+/** Hosted credential/template origin (GitHub Pages). */
+const PUBLIC_HOST = "https://opsecid.github.io";
+const PUBLIC_APP = `${PUBLIC_HOST}/vc-render-sandbox`;
+const UNTP_ENTRY = `${PUBLIC_APP}/credentials/untp/dpp-cathode.json`;
+
 type AppView = "demo" | "doc";
 type StackEntry = {
   vc: VerifiableCredential;
@@ -67,8 +72,8 @@ function mountShell() {
       </div>
       <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop JSON file">
         <strong>Drop a VC JSON file here</strong>
-        <span>or start the UNTP graph:
-          <code>credentials/untp/dpp-cathode.json</code>
+        <span>or start the UNTP graph (hosted on Pages):
+          <code>…/credentials/untp/dpp-cathode.json</code>
           → DCC / DFR / DTE / DCR / DIA</span>
       </div>
       <input type="file" id="file-input" accept=".json,application/json" hidden />
@@ -87,7 +92,8 @@ function mountShell() {
   document.getElementById("tab-doc")!.addEventListener("click", () => setView("doc"));
 
   document.getElementById("load-untp")!.addEventListener("click", () => {
-    void loadUrl(withBase("/credentials/untp/dpp-cathode.json"), "Cathode DPP");
+    // Load from the published Pages URL so relatedDocument links are real HTTPS URLs.
+    void loadUrl(UNTP_ENTRY, "Cathode DPP");
   });
   document.getElementById("load-passport")!.addEventListener("click", () => {
     void loadUrl(withBase("/credentials/product-passport.json"), "Product passport");
@@ -326,14 +332,20 @@ function isCredentialFetchAllowed(href: string): boolean {
   if (href.startsWith("/")) return true;
   try {
     const url = new URL(href, window.location.href);
-    return url.origin === window.location.origin;
+    if (url.origin === window.location.origin) return true;
+    // Published demo graph uses absolute Pages URLs.
+    if (url.origin === PUBLIC_HOST && url.pathname.startsWith("/vc-render-sandbox/")) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
 }
 
-/** Resolve relative credential URLs against the app base (GH Pages project sites). */
+/** Resolve relative credential/template URLs against the app base. */
 function resolveFetchUrl(href: string): string {
+  if (href.startsWith("http://") || href.startsWith("https://")) return href;
   if (href.startsWith("/credentials/") || href.startsWith("/templates/")) {
     return withBase(href);
   }

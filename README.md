@@ -17,7 +17,7 @@ Open http://localhost:5173
 
 ## UNTP copper cathode graph
 
-Built from [UNTP v0.8.0 samples](https://untp.unece.org/artefacts/samples/v0.8.0/) into `credentials/untp/` with ported `SuiteRenderMethod` / `html` and remapped `relatedDocument` links for same-origin host follow:
+Built from [UNTP v0.8.0 samples](https://untp.unece.org/artefacts/samples/v0.8.0/) into `credentials/untp/` with ported `SuiteRenderMethod` / `html`. **`relatedDocument.linkURL` and `template.id` are absolute GitHub Pages URLs** (e.g. `https://opsecid.github.io/vc-render-sandbox/credentials/untp/…`), so host-mediated follow uses real hosted links.
 
 | Node | File |
 |------|------|
