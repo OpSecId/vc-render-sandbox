@@ -98,25 +98,18 @@ Calling `renderMethodFollow` only enqueues a message to the host; it does not it
 
 ### 5.2 Host message
 
-The wrapper sends a message to the host equivalent to:
+This sandbox extends the HTML suite `MessageChannel` (the same port used for `ready` / `error`). After the host transfers `port2` into the wrapper, follow requests are sent on that port as:
 
 ```json
 {
-  "type": "vcrender",
-  "handshakeId": "<per-mount id>",
-  "event": "followLink",
+  "type": "followLink",
   "href": "https://example.example/credentials/dcc.json",
   "linkType": "https://test.uncefact.org/vocabulary/link-type/dcc",
   "label": "View conformity credential"
 }
 ```
 
-Transport MAY be:
-
-1. `window.parent.postMessage` with a per-mount `handshakeId` (used by this sandbox; reliable with opaque-origin sandboxed `srcdoc`), or  
-2. the HTML suite `MessageChannel` already used for `ready` / `error`, extended with a `followLink` message type.
-
-Hosts MUST ignore messages that fail handshake / source validation for the active iframe mount.
+Hosts MUST ignore messages that are not from the active mount’s `MessagePort`.
 
 ### 5.3 Ready API (unchanged semantics)
 
@@ -146,7 +139,7 @@ Inputs: active filtered credential `filtered`, request `req`.
    - **credential follow** — media type / path indicates a VC JSON document; host retrieves and may render it
    - **non-credential** — HTML page, PDF, etc.; host MAY show metadata only, open with an explicit external-open UX, or refuse
 4. For credential follow:
-   1. Retrieve the document under host control (not inside the template iframe).
+   1. Retrieve the document under host control (not inside the template iframe). Any origin is allowed at the protocol level; this sandbox fetches asserted `https:` URLs (and `http://localhost` for local dev). The browser still enforces CORS on the target.
    2. Verify it as required by the host (signature, status, type).
    3. Present it (new renderMethod pass, stack navigation, split pane, etc.).
 5. Hosts SHOULD apply privacy-preserving retrieval for remote resources (e.g. disassociating relays / Oblivious HTTP as already suggested for template fetches in the base specification).
@@ -173,7 +166,8 @@ Hosts MUST NOT accept URLs that appear only in template code or only in unfilter
 
 ### 7.2 Residual risks (host responsibilities)
 
-- **Host fetch as tracker:** a malicious or compromised host could still request asserted URLs. Users trust the host/wallet; this extension does not change that trust boundary.
+- **Host fetch as tracker:** a malicious or compromised host could still request asserted URLs (including cross-origin). Users trust the host/wallet; this extension does not change that trust boundary.
+- **CORS / availability:** cross-origin credential stores must allow the host origin (or use a host-side proxy). A failed CORS preflight is a deployment concern, not a template escape.
 - **Asserted phishing URLs:** an issuer can place a malicious URL in the credential. The allowlist only proves the issuer asserted it; hosts SHOULD show clear UX (label, domain, type) before leaving the current credential.
 - **Confused deputy:** hosts MUST NOT treat `followLink` as proof that the target is a VC; validate media type / document shape before rendering as a credential.
 - **Over-broad `renderProperty`:** exposing more URIs than needed expands what templates may request; issuers SHOULD minimize `renderProperty` (or equivalent) to the claims required for the template.
