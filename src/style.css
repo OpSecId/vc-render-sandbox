@@ -475,6 +475,11 @@ header code {
   justify-content: center;
 }
 
+/* Author display:flex must not defeat the hidden attribute. */
+.doc-panel[hidden] {
+  display: none !important;
+}
+
 .doc-article {
   background: var(--panel);
   border: 1px solid var(--line);
